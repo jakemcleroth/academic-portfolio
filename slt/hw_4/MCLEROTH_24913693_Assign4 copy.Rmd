@@ -1,0 +1,470 @@
+---
+title: "Homework 4"
+author: "Jake Mc Leroth"
+date: "2025-04-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries install, include=FALSE}
+# install.packages("foreign")
+# install.packages("mldr")
+# install.packages("utiml")
+# install.packages("corrplot")
+# install.packages("randomForest")
+# install.packages("e1071")
+# install.packages("xgboost")
+```
+
+```{r libraries, results='hide', message=FALSE}
+library(foreign)
+library(mldr)
+library(utiml)
+library(corrplot)
+library(randomForest)
+library(e1071)
+library(xgboost)
+library(ggplot2)
+library(reshape2)
+```
+
+#### In this assignment, the Scene data set is analysed. This is a multilabel data set from image data, with each image having binary labels for Beach, Sunset, Fall Folliage, Field, Mountain and Urban. The data set was first introduced by Boutell et al. (2004). The features for the data were obtained as follows:The RGB colours are converted to the Luv space. Each image was divided into a 7x7 grid of 49 squares, of which each has 3 bands corresponding to a low resolution image and texture features. The mean and variance is calculated for each bang, resulting in 49 * 3 * 2 = 294 features. The goal is to use these features to classify wether each image has a Beach, a Sunset, Fall Folliage, a Field, a Mountain or Urban.
+
+```{r data}
+# Import data
+data <- foreign::read.arff("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/SLT/homework/hw_4/scene_dat")
+label_indices <- 295:300
+data[label_indices] <- lapply(data[label_indices], function(x) as.numeric(as.character(x)))
+
+# Create an mldr object
+data_mldr <-  mldr_from_dataframe(data, labelIndices = label_indices, name = "scene")
+```
+
+
+## Exploratory Data Analysis
+#### An exploratory data analysis is done on the data set:
+```{r}
+# Missing values
+sum(colSums(is.na(data)))
+
+# Number of columns
+data_mldr$measures$num.attributes
+# Number of observations
+data_mldr$measures$num.instances
+# Number of features
+data_mldr$measures$num.inputs
+# Number of labels
+data_mldr$measures$num.labels
+```
+#### We see there are no missing values to deal with, and confirm there are 6 labels and 294 features. There are 2407 observation (images) in the data set. The labels are looked at in more depth, first looking at the individual labels:
+
+```{r Individual label plots, out.width='50%'}
+# Bar plot for label counts
+label_count <- data_mldr$labels$count
+barplot(label_count,
+        main = "Label Count",
+        ylab = "Count",
+        las = 2, col = "yellow", names.arg = c("Beach", "Sunset", "FallFoliage", "Field", "Mountain", "Urban"))
+
+# Bar plot for label frequency
+label_freq <- data_mldr$labels$freq
+barplot(label_freq,
+        main = "Label Frequencies",
+        ylab = "Proportion",
+        las = 2, col = "steelblue", names.arg = c("Beach", "Sunset", "FallFoliage", "Field", "Mountain", "Urban"))
+
+# Bar plot for Imbalance Ratio
+barplot(data_mldr$labels$IRLbl,
+        main = "Imbalance Ratio per Label (IRLbl)",
+        ylab = "IR",
+        las = 2,
+        col = "tomato",
+        names.arg = c("Beach", "Sunset", "FallFoliage", "Field", "Mountain", "Urban"))
+
+# Correlation heat map
+label_corr <- cor(data[, label_indices])
+corrplot(label_corr,
+         method = "color", type = "upper",
+         tl.col = "darkgrey", tl.srt = 45,
+         addCoef.col = "darkgrey", number.cex = 0.7)
+```
+
+#### We see from the first three plots that the most common label is Mountain, and the least is Sunset. There is quite a high within-label imbalance, with Mountain having a frequency of 20%. The correlation heat map shows that all labels exhibit a small negative correlation. We now look at the between label behaviour:
+
+```{r}
+labelsets <- data_mldr$labelsets
+labelset_counts <- sort(labelsets, decreasing = TRUE)
+
+barplot(labelset_counts,
+        main = "Labelset Frequencies (All)",
+        ylab = "Count",
+        las = 2,
+        col = "purple",
+        names.arg = c("Urban", "Mountain", "Beach", "Sunset", "Fall Foliage", "Field", "F + M", "B + M", "FF + F", "B + U", "FF + M", "F + U", "M + U", "FF + F + M", "B + F"), cex.names = 0.8) #  names(labelset_counts)
+
+labels_per_instance <- rowSums(data[, label_indices])
+hist(labels_per_instance,
+     breaks = max(labels_per_instance),
+     main = "Number of Labels per Observation",
+     xlab = "Label Count", col = "darkgreen")
+```
+#### There are 15 unique labelsets, 3 of which are only observed once. Urban and Mountain are the most common labelset, with the rest of the individual features following behind. The max labels present in any labelset is only two, with by far the majority of them only having one. Some more specific metrics are looked at:
+
+```{r Multilabel measures}
+# Cardinality
+data_mldr$measures$cardinality
+
+# Density
+data_mldr$measures$density
+
+# Mean imbalance ratio 
+data_mldr$measures$meanIR
+
+# Scumble
+data_mldr$measures$scumble
+
+# Scumble CV
+data_mldr$measures$scumble.cv
+
+# TCS
+data_mldr$measures$tcs
+cor_matrix <- 
+```
+
+#### *Interpret. Now the features are looked at. Since there are 294 features, only a few summary statistics are looked at to get a better idea of the data, since a 294x294 correlation plot is not very interpretable.
+
+```{r Features} 
+# Assume feature_data is your numeric data frame
+cor_matrix <- cor(data[,-(295:300)])
+
+# Turn matrix into long format
+cor_df <- melt(cor_matrix, varnames = c("Feature1", "Feature2"), value.name = "Correlation")
+
+# Plot correlation heat map
+ggplot(cor_df, aes(x = Feature1, y = Feature2, fill = Correlation)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
+                       name = "Correlation") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_blank(),  # remove x-axis text
+    axis.text.y = element_blank(),  # remove y-axis text
+    axis.ticks = element_blank(),   # remove axis ticks
+    panel.grid = element_blank(),    # optional: remove grid lines
+    legend.position = "right"
+  ) +
+  labs(title = "Feature Correlation Heatmap", x = "", y = "")
+
+```
+
+To do: feature analysis 
+* Get ranges, max & min, means, check if any features have outliers + interpret multilabel measures
+
+
+```{r}
+# train/test split
+set.seed(123)
+train_indices <- sort(sample(1:nrow(data), size = 1211, replace = FALSE), decreasing = F)
+data_train <- data[train_indices,]
+data_test <- data[-train_indices,]
+data_train_mldr <- mldr_from_dataframe(data_train, labelIndices = label_indices, name = "scene train")
+data_test_mldr <- mldr_from_dataframe(data_test, labelIndices = label_indices, name = "scene test")
+```
+
+## Model Fitting
+#### Transformation Models: Binary relevance, classifier chains, label powerset, calibrated label ranking 
+```{r Binary Relevance}
+# Binary relevance with RF
+br_fit_rf <- br(data_train_mldr, base.algorithm = "RF", cores = 6)
+br_predict_rf <- predict(br_fit_rf, data_test_mldr)
+results_br_rf <- multilabel_evaluate(data_test_mldr, br_predict_rf, labels = T)
+
+# Binary relevance with SVM
+br_fit_svm <- br(data_train_mldr, base.algorithm = "SVM", cores = 6)
+br_predict_svm <- predict(br_fit_svm, data_test_mldr)
+results_br_svm <- multilabel_evaluate(data_test_mldr, br_predict_svm, labels = T)
+
+# Binary relevance with xgboost
+br_fit_xg <- br(data_train_mldr, base.algorithm = "XGB", cores = 6)
+br_predict_xg <- predict(br_fit_xg, data_test_mldr)
+results_br_xg <- multilabel_evaluate(data_test_mldr, br_predict_xg, labels = T)
+
+```
+
+```{r Classifier Chains}
+# Classifier Chains with RF
+cc_fit_rf <- cc(data_train_mldr, base.algorithm = "RF", cores = 6)
+cc_predict_rf <- predict(cc_fit_rf, data_test_mldr)
+results_cc_rf <- multilabel_evaluate(data_test_mldr, cc_predict_rf, labels = T)
+
+# Classifier Chains with SVM
+cc_fit_svm <- cc(data_train_mldr, base.algorithm = "SVM", cores = 6)
+cc_predict_svm <- predict(cc_fit_svm, data_test_mldr)
+results_cc_svm <- multilabel_evaluate(data_test_mldr, cc_predict_svm, labels = T)
+
+# Classifier Chains with xgboost
+cc_fit_xg <- cc(data_train_mldr, base.algorithm = "XGB", cores = 6)
+cc_predict_xg <- predict(cc_fit_xg, data_test_mldr)
+results_cc_xg <- multilabel_evaluate(data_test_mldr, cc_predict_xg, labels = T)
+```
+
+
+```{r Label powerset}
+# Label powerset with RF
+lp_fit_rf <- lp(data_train_mldr, base.algorithm = "RF", cores = 6)
+lp_predict_rf <- predict(lp_fit_rf, data_test_mldr)
+results_lp_rf <- multilabel_evaluate(data_test_mldr, lp_predict_rf, labels = T)
+
+# Label powerset with SVM
+lp_fit_svm <- lp(data_train_mldr, base.algorithm = "SVM", cores = 6)
+lp_predict_svm <- predict(lp_fit_svm, data_test_mldr)
+results_lp_svm <- multilabel_evaluate(data_test_mldr, lp_predict_svm, labels = T)
+
+# Label powerset with xgboost
+lp_fit_xg <- lp(data_train_mldr, base.algorithm = "XGB", cores = 6)
+lp_predict_xg <- predict(lp_fit_xg, data_test_mldr)
+results_lp_xg <- multilabel_evaluate(data_test_mldr, lp_predict_xg, labels = T)
+
+```
+
+```{r}
+# multilabel_evaluate(data_test_mldr, lp_predict_xg, "bipartition")
+# mldr_evaluate(data_test_mldr, lp_predict_xg)
+# multilabel_confusion_matrix(data_test_mldr, lp_predict_xg)
+# multilabel_evaluate(multilabel_confusion_matrix(data_test_mldr, lp_predict_xg))
+# multilabel_evaluate(data_test_mldr, lp_predict_xg, "label-based", labels = T)
+# multilabel_evaluate(data_test_mldr, fixed_threshold(lp_predict_xg, threshold = 0.5), "example-based", labels = T)
+# mldr_evaluate(data_test_mldr, lp_predict_xg)
+```
+
+```{r Calibrated label ranking}
+
+# Calibrated label ranking with RF
+clr_fit_rf <- clr(data_train_mldr, base.algorithm = "RF", cores = 6)
+clr_predict_rf <- predict(clr_fit_rf, data_test_mldr)
+results_clr_rf <- multilabel_evaluate(data_test_mldr, clr_predict_rf, labels = T)
+
+# Calibrated label ranking with SVM
+clr_fit_svm <- clr(data_train_mldr, base.algorithm = "SVM", cores = 6)
+clr_predict_svm <- predict(clr_fit_svm, data_test_mldr)
+results_clr_svm <- multilabel_evaluate(data_test_mldr, clr_predict_svm, labels = T)
+
+# Calibrated label ranking with xgboost
+clr_fit_xg <- clr(data_train_mldr, base.algorithm = "XGB", cores = 6)
+clr_predict_xg <- predict(clr_fit_xg, data_test_mldr)
+results_clr_xg <- multilabel_evaluate(data_test_mldr, clr_predict_xg, labels = T)
+
+```
+
+
+#### Adaptation Models: KNN, Decision trees
+```{r KNN}
+# Multi-label knn
+mlknn_fit <- mlknn(data_train_mldr)
+mlknn_predict <- predict(mlknn_fit, data_test_mldr)
+results_mlknn <- multilabel_evaluate(data_test_mldr, mlknn_predict, labels = T)
+```
+
+#### Ensemble Methods Ensemble br, Ensemble cc
+```{r Ensemble binary relevance}
+# Ensemble binary relevance with RF
+ebr_fit_rf <- ebr(data_train_mldr, base.algorithm = "RF", cores = 6)
+ebr_predict_rf <- predict(ebr_fit_rf, data_test_mldr)
+results_ebr_rf <- multilabel_evaluate(data_test_mldr, ebr_predict_rf, labels = T)
+
+# Ensemble binary relevance with SVM
+ebr_fit_svm <- ebr(data_train_mldr, base.algorithm = "SVM", cores = 6)
+ebr_predict_svm <- predict(ebr_fit_svm, data_test_mldr)
+results_ebr_svm <- multilabel_evaluate(data_test_mldr, ebr_predict_svm, labels = T)
+
+# Ensemble binary relevance with xgboost
+ebr_fit_xg <- ebr(data_train_mldr, base.algorithm = "XGB", cores = 6)
+ebr_predict_xg <- predict(ebr_fit_xg, data_test_mldr)
+results_ebr_xg <- multilabel_evaluate(data_test_mldr, ebr_predict_xg, labels = T)
+
+```
+
+
+```{r Ensemble classifier chains}
+# Ensemble classifier Chains with RF
+ecc_fit_rf <- ecc(data_train_mldr, base.algorithm = "RF", cores = 6)
+ecc_predict_rf <- predict(ecc_fit_rf, data_test_mldr)
+results_ecc_rf <- multilabel_evaluate(data_test_mldr, ecc_predict_rf, labels = T)
+
+# Classifier Chains with SVM
+ecc_fit_svm <- ecc(data_train_mldr, base.algorithm = "SVM", cores = 6)
+ecc_predict_svm <- predict(ecc_fit_svm, data_test_mldr)
+results_ecc_svm <- multilabel_evaluate(data_test_mldr, ecc_predict_svm, labels = T)
+
+# Classifier Chains with xgboost
+ecc_fit_xg <- ecc(data_train_mldr, base.algorithm = "XGB", cores = 6)
+ecc_predict_xg <- predict(ecc_fit_xg, data_test_mldr)
+results_ecc_xg <- multilabel_evaluate(data_test_mldr, ecc_predict_xg, labels = T)
+```
+
+
+
+## References
+#### Boutell, M.R., Luo, J., Shen, X. and Brown, C.M. (2004). Learning multi-label scene classification. Pattern recognition, vol. 37, no. 9, pp. 1757–1771.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
