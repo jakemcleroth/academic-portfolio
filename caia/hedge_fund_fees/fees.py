@@ -84,11 +84,11 @@ def fund_fees_calculator(capital, returns, management, perf_fee=0.0, hurdle=0.0,
 
 def main():
     # Get data
-    matrix_returns = pd.read_csv("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/CAIA/tasks/hedge_fund_fees/data/matrix.csv", index_col='Year')
+    matrix_returns = pd.read_csv("data/matrix.csv", index_col='Year')
     matrix_returns = matrix_returns.sort_index(ascending=True)/100 # matrix values weren't in decimals
-    keystone_returns = pd.read_csv("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/CAIA/tasks/hedge_fund_fees/data/keystone.csv", index_col='Year')
-    polar_returns = pd.read_csv("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/CAIA/tasks/hedge_fund_fees/data/polar.csv", index_col='Year')
-    rocksolid_returns = pd.read_csv("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/CAIA/tasks/hedge_fund_fees/data/rocksolid.csv", index_col='Year')
+    keystone_returns = pd.read_csv("data/keystone.csv", index_col='Year')
+    polar_returns = pd.read_csv("data/polar.csv", index_col='Year')
+    rocksolid_returns = pd.read_csv("data/rocksolid.csv", index_col='Year')
    
     print("Matrix: ")
     matrix = fund_fees_calculator(
@@ -99,7 +99,7 @@ def main():
         hurdle=0.0,
         has_hwm=True
     )
-    matrix.to_excel("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/CAIA/tasks/hedge_fund_fees/matrix_results.xlsx")
+    matrix.to_excel("results/matrix_results.xlsx")
     print(matrix)
 
     print("Polar: ")
@@ -111,7 +111,7 @@ def main():
         hurdle=0.07,
         has_hwm=True
     )
-    polar.to_excel("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/CAIA/tasks/hedge_fund_fees/polar_results.xlsx")
+    polar.to_excel("results/polar_results.xlsx")
     print(polar)
 
     print("Keystone: ")
@@ -123,7 +123,7 @@ def main():
         hurdle=0.07,
         has_hwm=True
     )
-    keystone.to_excel("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/CAIA/tasks/hedge_fund_fees/keystone_results.xlsx")
+    keystone.to_excel("results/keystone_results.xlsx")
     print(keystone)
 
     print("Rock Solid: ")
@@ -135,7 +135,7 @@ def main():
         hurdle=0.07,
         has_hwm=True
     )
-    rocksolid.to_excel("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/CAIA/tasks/hedge_fund_fees/rocksolid_results.xlsx")
+    rocksolid.to_excel("results/rocksolid_results.xlsx")
     print(rocksolid)
 
 
