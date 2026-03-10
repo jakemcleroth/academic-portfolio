@@ -102,7 +102,7 @@ library(fExtremes)
 
 ``` r
 # Read in data
-data_raw <- read_xlsx("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/EVT/project/data/raw_data/firstrand_data.xlsx") %>%
+data_raw <- read_xlsx("firstrand_data.xlsx") %>%
   rename(
     date       = `Date`,
     last_price = `Last Price`,
