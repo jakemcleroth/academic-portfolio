@@ -247,7 +247,7 @@ ggplot(data_spreads[6083:nrow(data_spreads),],aes(x=date)) +
   theme_minimal()
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/prices%20plots-1.png)<!-- -->
+![](evt_project_files/figure-gfm/prices%20plots-1.png)<!-- -->
 
 # Exploratory Data Analysis
 
@@ -313,19 +313,19 @@ ggplot(data_spreads, aes(x = date, y = spread)) +
   theme_minimal()
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/absolute%20spread%20time%20series%20plots-1.png)<!-- -->
+![](evt_project_files/figure-gfm/absolute%20spread%20time%20series%20plots-1.png)<!-- -->
 
 ``` r
 acf(data_spreads$spread, main = "ACF of Bid-Ask Spreads")
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/absolute%20spread%20time%20series%20plots-2.png)<!-- -->
+![](evt_project_files/figure-gfm/absolute%20spread%20time%20series%20plots-2.png)<!-- -->
 
 ``` r
 acf(data_spreads$spread, type = "partial", main = "PACF of Bid-Ask Spreads")
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/absolute%20spread%20time%20series%20plots-3.png)<!-- -->
+![](evt_project_files/figure-gfm/absolute%20spread%20time%20series%20plots-3.png)<!-- -->
 
 ``` r
 adf.test(data_spreads$spread)
@@ -362,19 +362,19 @@ ggplot(data_spreads, aes(x = date, y = spread_rel)) +
   theme_minimal()
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/Quoted%20spreads%20time%20series%20plots-1.png)<!-- -->
+![](evt_project_files/figure-gfm/Quoted%20spreads%20time%20series%20plots-1.png)<!-- -->
 
 ``` r
 acf(data_spreads$spread_rel, main = "ACF of Relative Spreads")
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/Quoted%20spreads%20time%20series%20plots-2.png)<!-- -->
+![](evt_project_files/figure-gfm/Quoted%20spreads%20time%20series%20plots-2.png)<!-- -->
 
 ``` r
 acf(data_spreads$spread_rel, type = "partial", main = "PACF of Relative Spreads")
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/Quoted%20spreads%20time%20series%20plots-3.png)<!-- -->
+![](evt_project_files/figure-gfm/Quoted%20spreads%20time%20series%20plots-3.png)<!-- -->
 
 ``` r
 adf.test(data_spreads$spread_rel)
@@ -417,20 +417,20 @@ ggplot(data_spreads, aes(x = date, y = spread_log)) +
   theme_minimal()
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/log%20return%20spread%20time%20series%20plots-1.png)<!-- -->
+![](evt_project_files/figure-gfm/log%20return%20spread%20time%20series%20plots-1.png)<!-- -->
 
 ``` r
 # ACF and PACF
 acf(data_spreads$spread_log, main = "ACF of Change in Log of Relative Spreads")
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/log%20return%20spread%20time%20series%20plots-2.png)<!-- -->
+![](evt_project_files/figure-gfm/log%20return%20spread%20time%20series%20plots-2.png)<!-- -->
 
 ``` r
 acf(data_spreads$spread_log, type = "partial", main = "PACF of Change in Log of Relative Spreads")
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/log%20return%20spread%20time%20series%20plots-3.png)<!-- -->
+![](evt_project_files/figure-gfm/log%20return%20spread%20time%20series%20plots-3.png)<!-- -->
 
 ``` r
 adf.test(data_spreads$spread_log)
@@ -544,13 +544,13 @@ gev_ext <- fevd(
 plot.fevd(x = gev_ext, type = "qq", main = "GEV QQ Plot")
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/QQ-1.png)<!-- -->
+![](evt_project_files/figure-gfm/QQ-1.png)<!-- -->
 
 ``` r
 plot.fevd(x = gev_ext, type ="rl", main = "Return Level Plot")
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/QQ-2.png)<!-- -->
+![](evt_project_files/figure-gfm/QQ-2.png)<!-- -->
 
 ``` r
 ci(gev_ext, type = "parameter", which.par =  3, xrange = c(-0.235, -0.07),method = "proflik", verbose = TRUE, nint=1000,
@@ -566,7 +566,7 @@ ci(gev_ext, type = "parameter", which.par =  3, xrange = c(-0.235, -0.07),method
     ## 
     ##  Calculating profile likelihood.  This may take a few moments.
 
-![](evt_project_v1-copy_files/figure-gfm/Profile%20Likelihood-1.png)<!-- -->
+![](evt_project_files/figure-gfm/Profile%20Likelihood-1.png)<!-- -->
 
     ## 
     ##  Profile likelihood has been calculated.  Now, trying to find where it crosses the critical value =  -1716.409
@@ -607,7 +607,7 @@ gev_ismev <- gev.fit(block_maxima)
 gev.diag(gev_ismev)
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/sanity%20check%20for%20parameter%20estimates-1.png)<!-- -->
+![](evt_project_files/figure-gfm/sanity%20check%20for%20parameter%20estimates-1.png)<!-- -->
 
 ``` r
 gev_q <- function(p, mu, sigma, gamma){
@@ -783,7 +783,7 @@ ci(gev_ext, type="Return.level", method = "proflik",
     ## 
     ##  Calculating profile likelihood.  This may take a few moments.
 
-![](evt_project_v1-copy_files/figure-gfm/Quantile%20Profile%20Likelihood-1.png)<!-- -->
+![](evt_project_files/figure-gfm/Quantile%20Profile%20Likelihood-1.png)<!-- -->
 
     ## 
     ##  Profile likelihood has been calculated.  Now, trying to find where it crosses the critical value =  -1716.409
@@ -812,7 +812,7 @@ ci(gev_ext, type="Return.level", method = "proflik",
     ## 
     ##  Calculating profile likelihood.  This may take a few moments.
 
-![](evt_project_v1-copy_files/figure-gfm/Quantile%20Profile%20Likelihood-2.png)<!-- -->
+![](evt_project_files/figure-gfm/Quantile%20Profile%20Likelihood-2.png)<!-- -->
 
     ## 
     ##  Profile likelihood has been calculated.  Now, trying to find where it crosses the critical value =  -1716.409
@@ -841,7 +841,7 @@ ci(gev_ext, type="Return.level", method = "proflik",
     ## 
     ##  Calculating profile likelihood.  This may take a few moments.
 
-![](evt_project_v1-copy_files/figure-gfm/Quantile%20Profile%20Likelihood-3.png)<!-- -->
+![](evt_project_files/figure-gfm/Quantile%20Profile%20Likelihood-3.png)<!-- -->
 
     ## 
     ##  Profile likelihood has been calculated.  Now, trying to find where it crosses the critical value =  -1716.409
@@ -1088,13 +1088,13 @@ res_stat_00001$CI
 MeanExcess(data_spreads$spread_log[data_spreads$spread_log>0])
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/unnamed-chunk-1-1.png)<!-- -->
+![](evt_project_files/figure-gfm/unnamed-chunk-1-1.png)<!-- -->
 
 ``` r
 gpd_reins <- GPDmle(data = data_spreads$spread_log[data_spreads$spread_log>0], plot = T)
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/unnamed-chunk-2-1.png)<!-- -->
+![](evt_project_files/figure-gfm/unnamed-chunk-2-1.png)<!-- -->
 
 ``` r
 u = 230
@@ -1169,13 +1169,13 @@ gpd_ext <- fevd(x = log_ret_spreads_declustered, threshold = u, type = "GP", met
 plot.fevd(x = gpd_ext, type = "qq", main = "GEV QQ Plot")
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+![](evt_project_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
 
 ``` r
 plot.fevd(x = gpd_ext, type ="rl", main = "Return Level Plot")
 ```
 
-![](evt_project_v1-copy_files/figure-gfm/unnamed-chunk-4-2.png)<!-- -->
+![](evt_project_files/figure-gfm/unnamed-chunk-4-2.png)<!-- -->
 
 ``` r
 gpd_q <- function(p_tail, sigma, gamma){
