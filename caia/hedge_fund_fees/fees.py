@@ -1,6 +1,7 @@
 """
 The following python script calculates the returns after fees as well as fees earned for a given hedge fund. 
 The output is saved in excel spreadsheets.
+Assumption: For this task, we assume that the returns given are always before fees.
 """
 
 import pandas as pd
