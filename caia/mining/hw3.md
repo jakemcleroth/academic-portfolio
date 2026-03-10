@@ -62,7 +62,7 @@ reverting/stationary process. Thus, divergences of the series should be
 short term and will be followed by convergences later.
 
 ``` r
-data <- read_excel("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/CAIA/tasks/mining/CAIA.xlsx", sheet = "IMPALA PLATINUM")
+data <- read_excel("CAIA.xlsx", sheet = "IMPALA PLATINUM")
 impala <- data$last_price
 pgm_ave <- data$pgm
 
