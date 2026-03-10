@@ -25,7 +25,7 @@ library(fpp3)
 We investigate the relationship between the Impala Platinum share price and the average price of Platinum, Palladium, and	Rhodium. Looking at the excel spreadsheet, the correlation between the monthly returns is 0.37, which is relatively high. Looking further, the year on year returns have a correlation of 90%. The strong relationship between the two is evidence supporting the idea that the value of the commodities that a firm sells drives the firms performance. Evidence against this idea is that over the period of 2014 to 2024, Impala had a return of -24%, whereas the average between Platinum, Palladium, and	Rhodium had a return of 105%. We therefore take a more robust approach to determening if there is an underlying relationship. This is done by testing for cointegration, which do by using the Engle-Granger and the KPSS test. Should the two processes be cointegrated, that means there is a long term relationship between them, where the spread of the prices is a mean reverting/stationary process. Thus, divergences of the series should be short term and will be followed by convergences later.
 
 ```{r get data}
-data <- read_excel("/Users/jakemcleroth/Desktop/University/Masters/Modules/Semester 1/CAIA/tasks/mining/CAIA.xlsx", sheet = "IMPALA PLATINUM")
+data <- read_excel("CAIA.xlsx", sheet = "IMPALA PLATINUM")
 impala <- data$last_price
 pgm_ave <- data$pgm
 
