@@ -8,7 +8,7 @@ The full write-up is in `evt_project.pdf`.
 
 | File                      | Description                      |
 | ------------------------- | -------------------------------- |
-| `evt_project_final.pdf`   | Project write-up                 |
+| `evt_project.pdf`   | Project write-up                 |
 | `evt_bid_ask_spreads.Rmd` | R code                           |
 | `evt_bid_ask_spreads.md`  | Rendered output with all figures |
 | `firstrand_data.xlsx`     | FirstRand bid-ask spread data    |
