@@ -1,6 +1,6 @@
 # Stochastic Simulation: Variance Reduction for Asian Options
 
-This project explores variance reduction techniques for pricing Asian options via Monte Carlo simulation. The project brief required implementing a method not covered in class - we chose the n-simplex method.
+This project explores variance reduction techniques for pricing Asian options via Monte Carlo simulation. The project brief required implementing a method not covered in class - we chose the n-simplex method. Co-authored with Nicole Lyne.
 
 The full rendered write-up is in `stoch_sim_project.html`.
 
