@@ -1,0 +1,743 @@
+---
+title: "yield_model"
+author: "Nicole Lyne & Jake Mc Leroth"
+date: "2024-09-12"
+output: html_document
+---
+
+```{r libraries}
+library(readr)  
+library(xts) 
+library(tidyr)
+library(dplyr)
+library(openxlsx)
+library(glmnet)
+library(ggplot2)
+library(tseries)
+```
+
+```{r functions step 1}
+
+##################### STEP 1 ##########################
+# calculate CPI values for equation 8 from inflation values 
+# calculate appropriate tau value from equation 8 or HP method
+
+get_cpi <- function(core_inflation, freq = "yearly") {
+  #data is index 
+  #function will output CPI for eq 8
+  if(freq == "monthly") {
+    x = 1
+  } else if(freq == "quarterly") {
+    x = 3 
+  } else if(freq == "yearly") {
+    x = 12
+  }
+  return(core_inflation %>% mutate(inflation = (value - lag(value, x))/lag(value,x)))
+  
+}
+
+get_tau <- function(core_inflation, type = "weighted", v = 0.987, freq = "yearly") {
+  # type can be "weighted" as in equation 8 or "HP" for HP
+  # tau values are joined with the core_inflation data in one dataframe
+  inflation <- get_cpi(core_inflation, freq)
+  if(type == "weighted") {
+    v.vec <- numeric() #weights vector 
+    for (i in 1:120){
+      v.vec[i] <- v^(i-1)
+    }
+    inflation$tau <- NA
+    for(i in 132: nrow(inflation)){
+      inflation$tau[i] <- (sum(inflation$inflation[(i-119):i] * v.vec[120:1]))/sum(v.vec)
+    }
+  }
+  else if(type == "HP") {
+    print("to do")
+  }
+  return(inflation)
+}
+```
+
+```{r function step 2}
+##################### STEP 2 ##########################
+# Get model residuals by performing a linear regression for terms 1, 2, 5, 7, 10, 20
+# These residuals correspond to the cycles in equation 9
+# plot fitted values as well as actual zero coupon yields for each term 
+# on the same plot, plot inflation and tau values
+# On separate plot, plot residuals 
+
+get_cycles <- function(zero_coupon_yields, core_inflation,  type = "weighted", v = 0.987, freq = "yearly") {
+  # returns residuals from equation 9 (these are the cycles from equation 7)
+  # cycle_regression data contains all zero_coupon yields as well as tau values in separate columns
+  # type, v and freq are for get_tau function only
+  core_inflation <- get_tau(core_inflation = core_inflation, type = type, v = v, freq = freq)
+  cycle_regression_data <- 
+    zero_coupon_yields %>% 
+    mutate(term = paste0("term_",term)) %>% 
+    dplyr::select(-date_unformatted) %>% 
+    rename(entity = term, value = yield) %>% 
+    bind_rows(
+      core_inflation %>% select(datestamp,entity, tau) %>% rename(value = tau) %>% mutate(entity = "tau")
+    ) %>% 
+    pivot_wider(id_cols = datestamp, names_from = entity) %>% 
+    select(datestamp, term_1, term_2, term_5, term_7, term_10, term_20, tau) %>% 
+    arrange(datestamp) %>% 
+    fill(!tau) %>% 
+    drop_na()
+  
+  #can return for R^2 calc
+  cycle_fitted <-
+   cycle_regression_data %>%
+   mutate(across(starts_with("term"), ~lm.fit(x=cbind(1,tau),y=.x)$fitted.values))
+  
+  cycle_resids <-
+   cycle_regression_data %>%
+   mutate(across(starts_with("term"), ~lm.fit(x=cbind(1,tau),y=.x)$residuals)) %>% 
+    select(!tau)
+  
+  return(list(cycle_resids = cycle_resids, cycle_fitted = cycle_fitted, cycle_regression_data = cycle_regression_data))
+}
+
+
+#set line width for graph lines
+line_width <- 1
+
+plot_zero_coupon_yields <- function(cycle_regression_data) {
+  # cycle regression data from get_cycles function
+  plot(
+    cycle_regression_data$datestamp, cycle_regression_data$tau, 
+    col = "darkred", type = 'l', 
+    ylab = "Yield", xlab = "Date", 
+    ylim = c(0, max(cycle_regression_data[,-1])), lwd = line_width
+  )
+  lines(cycle_regression_data$datestamp, cycle_regression_data$term_1, col = 2)
+  for (i in 3:(ncol(cycle_regression_data)-1)) {
+    lines(cycle_regression_data$datestamp, as.matrix(cycle_regression_data[,i]), col = i, lwd = line_width)
+  }
+  
+  # Add a legend
+  legend(
+    "topright", 
+    legend = c("1 year", "2 year", "5 year", "7 year", "10 year", "20 year", "tau"),  
+    col = c(2, 3, 4, 5, 6, 7, "darkred"),  
+    lty = 1,  
+    cex = 0.6,  
+    bty = "y"  
+  )
+}
+
+
+plot_fitted_vs_actual_vs_inflation <- function(cycle_fitted, core_inflation, cycle_regression_data, type = "weighted", v = 0.987, freq = "yearly") {
+  core_inflation <- get_tau(core_inflation = core_inflation, type = type, v = v, freq = freq)
+  # returns a plot of inflation and tau values as well as fitted values and actual values for zero coupon yields
+  fitted_colours <- c(2, 3, 4, 5, 6, 7)
+  regression_colours <- c("pink", "green", "blue", "turquoise", "pink", "gold")
+  
+  plot(cycle_fitted$datestamp, tail(core_inflation$inflation, nrow(cycle_fitted)), col = "darkblue", type = 'l', ylab = "Yield", xlab = "Date", ylim = c(0, max(cycle_regression_data[,-1])), lwd = line_width)
+  lines(cycle_fitted$datestamp, tail(core_inflation$tau, nrow(cycle_fitted)), col = "darkred", lwd = line_width)
+  
+  for(i in 1:(ncol(cycle_regression_data)-2)) {
+    lines(cycle_fitted$datestamp, as.matrix(cycle_fitted[,i+1]), col = fitted_colours[i], lwd = line_width)
+    lines(cycle_fitted$datestamp, as.matrix(cycle_regression_data[,i+1]), col = regression_colours[i], lwd = line_width)
+  }
+  
+  legend(
+    "topright", 
+    legend = c("inflation", "yield_1", "yield_2", "yield_5", "yield_7", "yield_10", "yield_20", "tau", "predyield_1", "predyield_2", "predyield_5", "predyield_7", "predyield_10", "predyield_20"),
+    col = c("darkblue", regression_colours, "darkred", fitted_colours),  
+    lty = 1,  
+    cex = 0.6,  
+    bty = "y",
+    ncol= 2, 
+  )
+}
+
+plot_inflation_and_tau <- function(tau) {
+  plot(tau$datestamp, tau$inflation, type = "l", col = "darkblue",
+     xlab = "Date", ylab = "Inflation", lwd = line_width)
+
+  lines(tau$datestamp, tau$tau, col = "darkred", lwd = line_width)
+  
+  legend("topright", legend = c("Inflation", "Tau"), 
+         col = c("darkblue", "darkred"), lty = 1, cex = 0.6, bty = "y")
+}
+
+plot_traded_bond_yields <- function(traded_bonds){
+  traded_bonds_clean <- traded_bonds %>%
+    filter(
+      !grepl("MODIFIED_DURATION|CNVX_MID|TOT_RETURN_INDEX_GROSS_DVDS|DAY_TO_DAY_TOT_RETURN_GROSS_DVDS", item, ignore.case = TRUE)
+    )
+  
+  traded_bond_yields <- 
+    traded_bonds_clean %>% 
+    mutate(term = paste0("H15T",entity)) %>% 
+    dplyr::select(-date_unformatted) %>% 
+    rename(entity = entity, value = value) %>% 
+    pivot_wider(id_cols = datestamp, names_from = entity) %>% 
+    select(datestamp, 'H15T1Y Index', 'H15T2Y Index', 'H15T5Y Index', 'H15T7Y Index', 'H15T10Y Index', 'H15T20Y Index')%>% 
+    arrange(datestamp) %>% 
+    drop_na()
+  
+  plot(traded_bond_yields$datestamp, as.matrix(traded_bond_yields[,2]), col = 2, type = 'l', xlab = "Date", ylab = "Yield", ylim = c(0, max(traded_bond_yields[,-1])), lwd = line_width)
+  lines(traded_bond_yields$datestamp, as.matrix(traded_bond_yields[,3]), col = 3, lwd = line_width)
+  for(i in 4:(ncol(traded_bond_yields))){
+    lines(traded_bond_yields$datestamp, as.matrix(traded_bond_yields[,i]), col = i, lwd = line_width)
+  }
+  
+  legend(
+    "topright", 
+    legend = c("1 year", "2 year", "5 year", "7 year", "10 year", "20 year"),  
+    col = c(2, 3, 4, 5, 6, 7),  
+    lty = 1,  
+    cex = 0.6,  
+    bty = "y"  
+  )
+           
+}
+
+
+
+plot_cycles <- function(cycle_resids) {
+  matplot(cycle_resids$datestamp,cycle_resids[,2:7],type='l', xlab = "Date", ylab = "Residuals / Cycles", col = c(1,2,3,4,5,6), lwd = line_width)
+  
+  legend(
+    "topright",
+    legend = c(expression(c[t]^{(1)}),expression(c[t]^{(2)}), expression(c[t]^{(5)}), expression(c[t]^{(7)}), expression(c[t]^{(10)}), expression(c[t]^{(20)})),
+    col = c(1, 2, 3, 4, 5, 6),
+    lty = 1, 
+    cex = 0.6,
+    bty = "y",
+    ncol = 2
+  )
+  
+}
+
+plot_cf <- function(average_regression, cycle_resids){
+  old_par <- par()
+  par(mgp = c(2.5,0.75,0))
+  plot(cycle_resids$datestamp,average_regression$cf, type = "l", xlab = "Date", ylab = expression(hat(cf)), lwd = line_width, ylim = c(-0.1, 0.1)) 
+  par(old_par)
+}
+```
+
+```{r functions step 3}
+##################### STEP 3 ##########################
+# Perform regression using 2 methods (from C & P equation 13 and our method using glmnet)
+
+get_returns <- function(traded_bonds) {
+  #freq = "quarterly", monthly", "yearly"
+  #change: get rid of unused columns
+    traded_bonds_freq <- 
+      traded_bonds %>% 
+      arrange(datestamp) %>% 
+      group_by(entity,item) %>% 
+      slice(cumsum(rle(lubridate::month(datestamp))$lengths)) %>% 
+      ungroup()
+    asset_id <- unique(traded_bonds_freq$entity)
+    n_assets <- length(asset_id)
+
+    returns_df <- NULL
+    for (i in 1:n_assets) {
+      temp_df <- 
+        traded_bonds_freq %>% 
+        filter(entity == asset_id[i]) %>% 
+        select(datestamp,entity,item,value) %>% 
+        pivot_wider(id_cols = c(datestamp,entity), names_from = item) %>% 
+        mutate(return = -MODIFIED_DURATION * (lead(PX_LAST, 12) - PX_LAST) + 1/2 * CNVX_MID*(lead(PX_LAST, 12) - PX_LAST)^2) %>% 
+        drop_na()
+      returns_df <- bind_rows(returns_df,temp_df %>% select(datestamp,entity,return))
+    }
+  return(returns_df)
+}
+
+
+reg_func <- function(y, X, nfolds = 10, alpha = 0.5, gamma = 0, measure = "mse") {
+  set.seed(123)
+  X <- X %>% as.matrix()
+  mod_fit <- cv.glmnet(x = X, y = y, nfolds = nfolds, alpha = alpha, type.measure = measure, gamma = gamma, relax = TRUE)
+  betas <- coef(mod_fit,s="lambda.min",gamma = "gamma.min") %>% as.matrix()
+  fitted <- predict(mod_fit,newx=X,s="lambda.min", gamma = "gamma.min") 
+  r_squared <- 1 - sum((y-fitted)^2)/sum((y-mean(y))^2)
+  N <- length(y)
+  p <- length(betas[betas!=0])
+  adj_r_squared <- 1 - ((1-r_squared)*(N-1))/(N-p-1)
+  return(list(betas=betas, fitted=fitted, r_squared=r_squared, adj_r_squared=adj_r_squared))
+}
+
+returns_regression <- function(returns, cycle_resids) {
+  # Regression as in equation 13 using elastic net
+  returns_and_resids <- 
+    returns %>%
+    rename(value = return) %>% 
+    bind_rows(
+      cycle_resids %>% 
+        pivot_longer(cols = !datestamp, names_to = "entity")
+    ) %>% 
+    pivot_wider(id_cols = datestamp, names_from = entity) %>% 
+    arrange(datestamp) %>% 
+    fill(starts_with("H15")) %>% 
+    # select(-c(`H15T3M Index`, `H15T3Y Index`, `H15T30Y Index`)) %>% 
+    select(c('datestamp', 'H15T1Y Index', 'H15T2Y Index', 'H15T5Y Index', 'H15T7Y Index', 'H15T10Y Index', 'H15T20Y Index',starts_with("term"))) %>% 
+    drop_na()
+  
+  fitted_values <-
+    returns_and_resids %>% 
+    mutate(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$fitted)) %>% 
+    select(!starts_with("term")) 
+  
+  beta_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$betas))
+  
+  r_squared_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$r_squared))
+  
+  adj_r_squared_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$adj_r_squared))
+  
+
+  return(list(returns_and_resids = returns_and_resids, fitted_values = fitted_values, beta_values = beta_values, r_squared_values = r_squared_values, adj_r_squared_values=adj_r_squared_values))
+}
+
+
+returns_regression_lm <- function(returns, cycle_resids) {
+  # Regression as in equation 13 (OLS)
+  returns_and_resids <- 
+    returns %>%
+    rename(value = return) %>% 
+    bind_rows(
+      cycle_resids %>% 
+        pivot_longer(cols = !datestamp, names_to = "entity")
+    ) %>% 
+    pivot_wider(id_cols = datestamp, names_from = entity) %>% 
+    arrange(datestamp) %>% 
+    fill(starts_with("H15")) %>% 
+    # select(-c(`H15T3M Index`, `H15T3Y Index`, `H15T30Y Index`)) %>% 
+    select(c('datestamp', 'H15T1Y Index', 'H15T2Y Index', 'H15T5Y Index', 'H15T7Y Index', 'H15T10Y Index', 'H15T20Y Index', starts_with("term"))) %>% 
+    drop_na()
+  
+  fitted_values <-
+    returns_and_resids %>% 
+    mutate(across(starts_with("H15"),~lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20)$fitted.values)) %>% 
+    select(!starts_with("term")) 
+  
+  beta_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20)$coef))
+  
+  adj_r_squared_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~summary(lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20))$adj.r.squared))
+
+  return(list(returns_and_resids = returns_and_resids, fitted_values = fitted_values, beta_values = beta_values, adj_r_squared_values = adj_r_squared_values))
+}
+
+returns_regression_lm_2 <- function(returns, cycle_resids) {
+  # Regression as in equation 13
+  returns_and_resids <- 
+    returns %>%
+    rename(value = return) %>% 
+    bind_rows(
+      cycle_resids %>% 
+        pivot_longer(cols = !datestamp, names_to = "entity")
+    ) %>% 
+    pivot_wider(id_cols = datestamp, names_from = entity) %>% 
+    arrange(datestamp) %>% 
+    fill(starts_with("H15")) %>% 
+    # select(-c(`H15T3M Index`, `H15T3Y Index`, `H15T30Y Index`)) %>% 
+    select(c('datestamp', 'H15T1Y Index', 'H15T2Y Index', 'H15T5Y Index', 'H15T7Y Index', 'H15T10Y Index', 'H15T20Y Index', starts_with("term"))) %>% 
+    drop_na()
+  
+  fitted_values <-
+    returns_and_resids %>% 
+    mutate(across(starts_with("H15"),~lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20 + returns_and_resids$term_1_ + returns_and_resids$term_2_ + returns_and_resids$term_5_ + returns_and_resids$term_7_ + returns_and_resids$term_10_ + returns_and_resids$term_20_)$fitted.values)) %>% 
+    select(!starts_with("term")) 
+  
+  beta_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20 + returns_and_resids$term_1_ + returns_and_resids$term_2_ + returns_and_resids$term_5_ + returns_and_resids$term_7_ + returns_and_resids$term_10_ + returns_and_resids$term_20_)$coef)) 
+  
+  adj_r_squared_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~summary(lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20 + returns_and_resids$term_1_ + returns_and_resids$term_2_ + returns_and_resids$term_5_ + returns_and_resids$term_7_ + returns_and_resids$term_10_ + returns_and_resids$term_20_))$adj.r.squared))
+
+  return(list(fitted_values = fitted_values, beta_values = beta_values, adj_r_squared_values = adj_r_squared_values))
+}
+
+average_returns_regression <- function(returns, cycle_resids) {
+  returns_and_resids <- 
+    returns %>%
+    rename(value = return) %>% 
+    bind_rows(
+      cycle_resids %>% 
+        pivot_longer(cols = !datestamp, names_to = "entity")
+    ) %>% 
+    pivot_wider(id_cols = datestamp, names_from = entity) %>% 
+    arrange(datestamp) %>% 
+    fill(starts_with("H15")) %>% 
+    # select(-c(`H15T3M Index`, `H15T3Y Index`, `H15T30Y Index`)) %>% 
+    select(c('datestamp', 'H15T1Y Index', 'H15T2Y Index', 'H15T5Y Index', 'H15T7Y Index', 'H15T10Y Index', 'H15T20Y Index', starts_with("term"))) %>% 
+    drop_na()
+  
+  returns_and_resids_ave <- 
+    returns_and_resids %>% 
+    mutate(ave_return = rowMeans(across(starts_with("H15T")))) %>% 
+    mutate(ave_term = rowMeans(across(starts_with("term") & !ends_with("1")))) %>% 
+    select("datestamp","term_1", "ave_term", "ave_return") 
+  
+  cf <- lm(returns_and_resids_ave$ave_return ~ returns_and_resids_ave$term_1 + returns_and_resids_ave$ave_term)$fitted.values
+  adj_r_squared_cf <- summary(lm(returns_and_resids_ave$ave_return ~ returns_and_resids_ave$term_1 + returns_and_resids_ave$ave_term))$adj.r.squared
+  
+  eq_17_betas <-
+    returns_and_resids %>% 
+    select("datestamp", starts_with("H15T")) %>% 
+    mutate(cf = cf) %>% 
+    summarise(across(starts_with("H15T"), ~lm(.x~cf)$coef))
+  
+  eq_17_adj_r_square <-
+    returns_and_resids %>% 
+    select("datestamp", starts_with("H15T")) %>% 
+    mutate(cf = cf) %>% 
+    summarise(across(starts_with("H15T"), ~summary(lm(.x~cf))$adj.r.squared))
+
+  return(list(returns_and_resids = returns_and_resids,cf = cf, adj_r_squared_cf = adj_r_squared_cf, eq_17_betas = eq_17_betas, eq_17_adj_r_square = eq_17_adj_r_square))
+}
+
+
+```
+
+```{r get data}
+# US DATA
+core_inflation_us <- read_csv("us_core_inflation.csv")
+traded_bonds_us <- read_csv("us_traded_bonds.csv")
+zero_coupon_yields_us <- read_csv("us_zero_coupon_yields.csv")
+
+# SA DATA
+core_inflation_sa <- read_csv("sa_inflation.csv")
+traded_bonds_sa <- read_csv("sa_traded_bonds.csv")
+zero_coupon_yields_sa <- read_csv("sa_zero_coupon_yields.csv")
+
+
+```
+
+```{r tau}
+# get tau value for us data
+tau_us <- get_tau(core_inflation = core_inflation_us, type = "weighted", v=0.987, freq = "yearly")
+
+plot_inflation_and_tau(tau_us)
+
+
+# get tau value for sa data
+tau_sa <- get_tau(core_inflation = core_inflation_sa, type = "weighted", v=0.987, freq = "yearly")
+
+plot_inflation_and_tau(tau_sa)
+```
+
+```{r plot traded bonds}
+plot_traded_bond_yields(traded_bonds_us)
+plot_traded_bond_yields(traded_bonds_sa)
+```
+
+```{r cycles}
+# US cycles
+cycle_us <- get_cycles(zero_coupon_yields = zero_coupon_yields_us, core_inflation = core_inflation_us, type = "weighted", v = 0.987, freq = "yearly")
+cycle_resids_us <- cycle_us$cycle_resids
+cycle_fitted_us <- cycle_us$cycle_fitted
+cycle_regression_data_us <- cycle_us$cycle_regression_data
+
+plot_cycles(cycle_resids = cycle_resids_us)
+plot_fitted_vs_actual_vs_inflation(cycle_fitted = cycle_fitted_us, core_inflation = core_inflation_us, cycle_regression_data = cycle_regression_data_us, type = "weighted", v = 0.987, freq = "yearly")
+
+
+
+#SA cycles
+cycle_sa <- get_cycles(zero_coupon_yields = zero_coupon_yields_sa, core_inflation = core_inflation_sa, type = "weighted", v = 0.987, freq = "yearly")
+cycle_resids_sa <- cycle_sa$cycle_resids
+cycle_fitted_sa <- cycle_sa$cycle_fitted
+cycle_regression_data_sa <- cycle_sa$cycle_regression_data
+
+plot_cycles(cycle_resids = cycle_resids_sa)
+plot_fitted_vs_actual_vs_inflation(cycle_fitted = cycle_fitted_sa, core_inflation = core_inflation_sa, cycle_regression_data = cycle_regression_data_sa, type = "weighted", v = 0.987, freq = "yearly")
+```
+
+```{r adf cycles us}
+adf.test(cycle_resids_us$term_1, k = 1)
+adf.test(cycle_resids_us$term_2, k = 1)
+adf.test(cycle_resids_us$term_5, k = 1)
+adf.test(cycle_resids_us$term_7, k = 1)
+adf.test(cycle_resids_us$term_10, k = 1)
+adf.test(cycle_resids_us$term_20, k = 1)
+```
+
+```{r adf cycles sa}
+adf.test(cycle_resids_sa$term_1, k = 1)
+adf.test(cycle_resids_sa$term_2, k = 1)
+adf.test(cycle_resids_sa$term_5, k = 1)
+adf.test(cycle_resids_sa$term_7, k = 1)
+adf.test(cycle_resids_sa$term_10, k = 1)
+adf.test(cycle_resids_sa$term_20, k = 1)
+```
+
+```{r adf test for tau and yields us}
+adf.test(ts(tau_us[132:nrow(tau_us),"tau"]), k = 1)
+adf.test(ts(tau_us[132:nrow(tau_us),"tau"]), k = 2)
+
+adf.test(cycle_regression_data_us$term_1, k = 1)
+adf.test(cycle_regression_data_us$term_2, k = 1)
+adf.test(cycle_regression_data_us$term_5, k = 1)
+adf.test(cycle_regression_data_us$term_7, k = 1)
+adf.test(cycle_regression_data_us$term_10, k = 1)
+adf.test(cycle_regression_data_us$term_20, k = 1)
+
+adf.test(cycle_regression_data_us$term_1, k = 2)
+adf.test(cycle_regression_data_us$term_2, k = 2)
+adf.test(cycle_regression_data_us$term_5, k = 2)
+adf.test(cycle_regression_data_us$term_7, k = 2)
+adf.test(cycle_regression_data_us$term_10, k = 2)
+adf.test(cycle_regression_data_us$term_20, k = 2)
+
+```
+
+```{r adf test for tau and yields sa}
+adf.test(ts(tau_sa[132:nrow(tau_sa),"tau"]), k = 1)
+adf.test(ts(tau_sa[132:nrow(tau_sa),"tau"]), k = 2)
+
+adf.test(cycle_regression_data_sa$term_1, k = 1)
+adf.test(cycle_regression_data_sa$term_2, k = 1)
+adf.test(cycle_regression_data_sa$term_5, k = 1)
+adf.test(cycle_regression_data_sa$term_7, k = 1)
+adf.test(cycle_regression_data_sa$term_10, k = 1)
+adf.test(cycle_regression_data_sa$term_20, k = 1)
+
+adf.test(cycle_regression_data_sa$term_1, k = 2)
+adf.test(cycle_regression_data_sa$term_2, k = 2)
+adf.test(cycle_regression_data_sa$term_5, k = 2)
+adf.test(cycle_regression_data_sa$term_7, k = 2)
+adf.test(cycle_regression_data_sa$term_10, k = 2)
+adf.test(cycle_regression_data_sa$term_20, k = 2)
+```
+
+```{r plot zero coupon yields}
+plot_zero_coupon_yields(cycle_regression_data_us)
+plot_zero_coupon_yields(cycle_regression_data_sa)
+```
+
+```{r forecasting factor}
+# us
+cycle_resids_us <- cycle_resids_us[1:(nrow(cycle_resids_us)-12),]
+returns_us <- get_returns(traded_bonds = traded_bonds_us)
+average_regression_us <- average_returns_regression(returns = returns_us, cycle_resids = cycle_resids_us)
+plot_cf(average_regression_us, cycle_resids_us)
+average_regression_us$adj_r_squared_cf
+average_regression_us$eq_17_adj_r_square #Table of R2 values from regressing equation 4.13
+average_regression_us$eq_17_betas #use these
+average_regression_us$returns_and_resids
+
+#sa
+cycle_resids_sa <- cycle_resids_sa[1:(nrow(cycle_resids_sa)-12),]
+returns_sa <- get_returns(traded_bonds = traded_bonds_sa)
+average_regression_sa <- average_returns_regression(returns = returns_sa, cycle_resids = cycle_resids_sa)
+plot_cf(average_regression_sa, cycle_resids_sa)
+average_regression_sa$adj_r_squared_cf
+round(average_regression_sa$eq_17_adj_r_square,4) #Table of R2 values from regressing equation 4.13
+round(average_regression_sa$eq_17_betas,4) #use these
+average_regression_sa$returns_and_resids
+```
+
+
+```{r biplots of US and SA comparison _ OLS factor}
+horizon <- c(1, 2, 5, 7, 10, 20)
+SA_Factor_Model <- average_regression_sa$eq_17_adj_r_square
+US_Factor_Model <- average_regression_us[["eq_17_adj_r_square"]]
+
+print(df)
+
+par(mgp = c(2, 0.5, 0))
+plot(horizon, SA_Factor_Model, type = "b", col = "blue", pch = 19, lwd = 2,
+     ylim = c(min(SA_Factor_Model, US_Factor_Model), max(SA_Factor_Model, US_Factor_Model)),
+     xlab = "Horizon", ylab = expression(Adjusted~R^2),
+     xaxt = "n", 
+     main = "Biplot of Factor Model Results for SA and US")
+
+lines(horizon, US_Factor_Model, type = "b", col = "red", pch = 17, lwd = 2)
+
+axis(1, at = c(1, 2, 5, 7, 10, 20), labels = c(1, 2, 5, 7, 10, 20))
+
+legend("right", legend = c("SA factor model", "US factor model"),
+       col = c("blue", "red"), pch = c(19, 17), lwd = 2)
+
+```
+
+```{r full model - linear regression}
+regression_us_lm <- returns_regression_lm(returns = returns_us, cycle_resids = cycle_resids_us)
+round(regression_us_lm$adj_r_squared_values,4) #Table of $R^2$ values for different maturities using OLS and Elastic Net regression
+round(regression_us_lm$beta_values,4) #use these
+regression_us_lm$fitted_values
+regression_us_lm$returns_and_resids
+
+
+regression_sa_lm <- returns_regression_lm(returns = returns_sa, cycle_resids = cycle_resids_sa)
+round(regression_sa_lm$adj_r_squared_values,4)
+round(regression_sa_lm$beta_values,4) #use these
+```
+
+``` {r full model - elastic net} 
+# us
+regression_us <- returns_regression(returns = returns_us, cycle_resids = cycle_resids_us)
+round(regression_us$adj_r_squared_values,4) #Table of $R^2$ values for different maturities using OLS and Elastic Net regression
+betas_elastic_us <- round(as.data.frame(regression_us$beta_values),4) #use these
+
+# sa
+regression_sa <- returns_regression(returns = returns_sa, cycle_resids = cycle_resids_sa)
+round(regression_sa$adj_r_squared_values,4)
+betas_elastic_sa <- round(regression_sa$beta_values,4) #use these
+```
+
+```{r biplots of US and SA comparison - Elastic net full}
+
+horizon <- c(1, 2, 5, 7, 10, 20)
+SA_elastic_full_Model <- regression_sa$adj_r_squared_values
+US_elastic_full_Model <- regression_us$adj_r_squared_values
+
+print(df)
+
+par(mgp = c(2, 0.5, 0))
+plot(horizon, SA_elastic_full_Model, type = "b", col = "blue", pch = 19, lwd = 2,
+     ylim = c(min(SA_elastic_full_Model, US_elastic_full_Model), max(SA_elastic_full_Model, US_elastic_full_Model)),
+     xlab = "Horizon", ylab = expression(Adjusted~R^2),
+     xaxt = "n", 
+     main = "Biplot of Full Model Results for SA and US Using Elastic Net")
+
+lines(horizon, US_elastic_full_Model, type = "b", col = "red", pch = 17, lwd = 2)
+
+axis(1, at = c(1, 2, 5, 7, 10, 20), labels = c(1, 2, 5, 7, 10, 20))
+
+legend("bottomright", legend = c("SA full model", "US full model"),
+       col = c("blue", "red"), pch = c(19, 17), lwd = 2)
+
+
+```
+
+```{r more functions} 
+regression_data_cycles <- function(zero_coupon_yields, tau) {
+  cycle_regression_data <- 
+    zero_coupon_yields %>% 
+    mutate(term = paste0("term_",term)) %>% 
+    dplyr::select(-date_unformatted) %>% 
+    rename(entity = term, value = yield) %>% 
+    bind_rows(
+      tau %>% select(datestamp,entity, tau) %>% rename(value = tau) %>% mutate(entity = "tau")
+    ) %>% 
+    pivot_wider(id_cols = datestamp, names_from = entity) %>% 
+    select(datestamp, term_1, term_2, term_5, term_7, term_10, term_20, tau) %>% 
+    arrange(datestamp) %>% 
+    fill(!tau) %>% 
+    drop_na()
+  return(cycle_regression_data)
+}
+
+get_cycles_v2 <- function(train_data) {
+  # returns residuals from equation 9 (these are the cycles from equation 7)
+  # train_data contains all zero_coupon yields as well as tau values for training
+  # test_data is the out-of-sample set in the same format
+  
+  # Fit the model on the training data
+  cycle_fitted <- 
+    train_data %>%
+    mutate(across(starts_with("term"), ~lm.fit(x=cbind(1, tau), y=.x)$fitted.values))
+  
+  cycle_resids <- 
+    train_data %>%
+    mutate(across(starts_with("term"), ~lm.fit(x=cbind(1, tau), y=.x)$residuals)) %>%
+    select(!tau)
+  
+  cycle_betas <- 
+    train_data %>%
+    summarise(across(starts_with("term"), ~lm.fit(x=cbind(1, tau), y=.x)$coef))
+  
+  return(list(
+    train_cycle_resids = cycle_resids, 
+    train_cycle_fitted = cycle_fitted, 
+    train_cycle_betas = cycle_betas
+    ))
+}
+
+```
+
+
+```{r sa returns with sa and us cycles linear model same date range of data}
+cycle_regression_data_us <- regression_data_cycles(zero_coupon_yields = zero_coupon_yields_us, tau = tau_us)
+cycle_regression_data_sa <- regression_data_cycles(zero_coupon_yields = zero_coupon_yields_sa, tau = tau_sa)
+
+cycle_regression_data_us_joined <- cycle_regression_data_us[which(cycle_regression_data_us$datestamp == "1995-01-31"):nrow(cycle_regression_data_us),]
+cycle_regression_data_sa_joined <- cycle_regression_data_sa[1:350,]
+
+
+cycle_us_2 <- get_cycles_v2(train_data = cycle_regression_data_us_joined)
+cycle_resids_us_2 <- cycle_us_2$train_cycle_resids
+
+cycle_sa_2 <- get_cycles_v2(train_data = cycle_regression_data_sa_joined)
+cycle_resids_sa_2 <- cycle_sa_2$train_cycle_resids
+
+
+colnames(cycle_resids_us_2) <- c("datestamp","term_1_", "term_2_", "term_5_", "term_7_", "term_10_", "term_20_")
+
+cycle_resids_all <- left_join(cycle_resids_sa_2, cycle_resids_us_2, by = "datestamp")
+cycle_resids_all <- cycle_resids_all[1:(nrow(cycle_resids_all) - 12),]
+regression_sa_lm_2 <- returns_regression_lm_2(returns = returns_sa, cycle_resids = cycle_resids_all)
+round(regression_sa_lm_2$adj_r_squared_values,4) #Table of in-sample R2 values obtained from combining the US and SA cycles
+round(regression_sa_lm_2$beta_values ,4)#use these
+```
+
+```{r sa returns with sa and us cycles elastic net same date range of data}
+
+regression_sa_elastic_2 <- returns_regression(returns = returns_sa, cycle_resids = cycle_resids_all)
+round(regression_sa_elastic_2$adj_r_squared_values,4) #Table of in-sample R2 values obtained from combining the US and SA cycles
+elastic_betas_2 <- round(regression_sa_elastic_2$beta_values,4)#use these
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

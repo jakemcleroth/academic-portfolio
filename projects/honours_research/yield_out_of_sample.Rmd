@@ -1,0 +1,638 @@
+---
+title: "Yield - Out of sample"
+author: "Jake Mc Leroth & Nicole Lyne"
+date: "2024-09-30"
+output: html_document
+---
+
+```{r libraries}
+library(readr)  #to read csv
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(glmnet)
+```
+
+```{r functions step 1}
+
+##################### STEP 1 ##########################
+# calculate CPI values for equation 8 from inflation values 
+# calculate appropriate tau value from equation 8 or HP method
+
+get_cpi <- function(core_inflation, freq = "yearly") {
+  #data is index 
+  #function will output CPI for eq 8
+  if(freq == "monthly") {
+    x = 1
+  } else if(freq == "quarterly") {
+    x = 3 
+  } else if(freq == "yearly") {
+    x = 12
+  }
+  return(core_inflation %>% mutate(inflation = (value - lag(value, x))/lag(value,x)))
+}
+
+get_tau <- function(core_inflation, type = "weighted", v = 0.987, freq = "yearly") {
+  # type can be "weighted" as in equation 8 or "HP" for HP
+  # tau values are joined with the core_inflation data in one dataframe
+  inflation <- get_cpi(core_inflation, freq)
+  if(type == "weighted") {
+    v.vec <- numeric() #weights vector 
+    for (i in 1:120){
+      v.vec[i] <- v^(i-1)
+    }
+    inflation$tau <- NA
+    for(i in 132: nrow(inflation)){
+      inflation$tau[i] <- (sum(inflation$inflation[(i-119):i] * v.vec[120:1]))/sum(v.vec)
+    }
+  }
+  else if(type == "HP") {
+    print("to do")
+  }
+  return(inflation)
+}
+```
+
+```{r function step 2}
+##################### STEP 2 ##########################
+# Get model residuals by performing a linear regression for terms 1, 2, 5, 7, 10, 20
+# These residuals correspond to the cycles in equation 9
+regression_data_cycles <- function(zero_coupon_yields, tau) {
+  cycle_regression_data <- 
+    zero_coupon_yields %>% 
+    mutate(term = paste0("term_",term)) %>% 
+    dplyr::select(-date_unformatted) %>% 
+    rename(entity = term, value = yield) %>% 
+    bind_rows(
+      tau %>% select(datestamp,entity, tau) %>% rename(value = tau) %>% mutate(entity = "tau")
+    ) %>% 
+    pivot_wider(id_cols = datestamp, names_from = entity) %>% 
+    select(datestamp, term_1, term_2, term_5, term_7, term_10, term_20, tau) %>% 
+    arrange(datestamp) %>% 
+    fill(!tau) %>% 
+    drop_na()
+  return(cycle_regression_data)
+}
+
+get_cycles <- function(train_data) {
+  # returns residuals from equation 9 (these are the cycles from equation 7)
+  # train_data contains all zero_coupon yields as well as tau values for training
+  # test_data is the out-of-sample set in the same format
+  
+  # Fit the model on the training data
+  cycle_fitted <- 
+    train_data %>%
+    mutate(across(starts_with("term"), ~lm.fit(x=cbind(1, tau), y=.x)$fitted.values))
+  
+  cycle_resids <- 
+    train_data %>%
+    mutate(across(starts_with("term"), ~lm.fit(x=cbind(1, tau), y=.x)$residuals)) %>%
+    select(!tau)
+  
+  cycle_betas <- 
+    train_data %>%
+    summarise(across(starts_with("term"), ~lm.fit(x=cbind(1, tau), y=.x)$coef))
+  
+  return(list(
+    train_cycle_resids = cycle_resids, 
+    train_cycle_fitted = cycle_fitted, 
+    train_cycle_betas = cycle_betas
+  ))
+}
+
+
+```
+
+```{r functions step 3}
+##################### STEP 3 ##########################
+# Perform regression using 2 methods (from C & P equation 13 and our method using glmnet)
+
+get_returns <- function(traded_bonds) {
+  #freq = "quarterly", monthly", "yearly"
+  #change: get rid of unused columns
+    traded_bonds_freq <- 
+      traded_bonds %>% 
+      arrange(datestamp) %>% 
+      group_by(entity,item) %>% 
+      slice(cumsum(rle(lubridate::month(datestamp))$lengths)) %>% 
+      ungroup()
+    asset_id <- unique(traded_bonds_freq$entity)
+    n_assets <- length(asset_id)
+
+    returns_df <- NULL
+    for (i in 1:n_assets) {
+      temp_df <- 
+        traded_bonds_freq %>% 
+        filter(entity == asset_id[i]) %>% 
+        select(datestamp,entity,item,value) %>% 
+        pivot_wider(id_cols = c(datestamp,entity), names_from = item) %>% 
+        mutate(return = -MODIFIED_DURATION * (lead(PX_LAST, 12) - PX_LAST) + 1/2 * CNVX_MID*(lead(PX_LAST, 12) - PX_LAST)^2) %>% 
+        drop_na()
+      returns_df <- bind_rows(returns_df,temp_df %>% select(datestamp,entity,return))
+    }
+  return(returns_df)
+}
+
+
+returns_resids <- function(returns, cycle_resids) {
+  returns_and_resids <- 
+    returns %>%
+    rename(value = return) %>% 
+    bind_rows(
+      cycle_resids %>% 
+        pivot_longer(cols = !datestamp, names_to = "entity")
+    ) %>% 
+    pivot_wider(id_cols = datestamp, names_from = entity) %>% 
+    arrange(datestamp) %>% 
+    fill(starts_with("H15")) %>% 
+    # select(-c(`H15T3M Index`, `H15T3Y Index`, `H15T30Y Index`)) %>% 
+    select(c('datestamp', 'H15T1Y Index', 'H15T2Y Index', 'H15T5Y Index', 'H15T7Y Index', 'H15T10Y Index', 'H15T20Y Index',starts_with("term"))) %>% 
+    drop_na()
+  
+  return(returns_and_resids)
+}
+
+returns_regression_lm <- function(returns_and_resids, test_data) {
+  # Regression as in equation 13
+  fitted_values <-
+    returns_and_resids %>% 
+    mutate(across(starts_with("H15"),~lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20)$fitted.values)) %>% 
+    select(!starts_with("term")) 
+  
+  beta_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20)$coef))
+  
+  adj_r_squared_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~summary(lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20))$adj.r.squared))
+  
+ # Matrix for test data
+  X_test <- cbind(1, test_data$term_1, test_data$term_2, test_data$term_5, test_data$term_7, test_data$term_10, test_data$term_20)
+  beta_matrix <- as.matrix(beta_values)
+  
+  # Use matrix multiplication to calculate predicted values for the test data
+  test_predicted <- as.data.frame(X_test %*% beta_matrix)
+  colnames(test_predicted) <- colnames(returns_and_resids)[grepl("H15", colnames(returns_and_resids))]  # Set column names to match the H15 columns
+  
+  # Calculate residuals for test data
+  test_resids <- 
+    test_data %>%
+    mutate(across(starts_with("H15"), ~{
+      predicted <- test_predicted[[cur_column()]]
+      .x - predicted
+    }))
+  
+  # Adjusted R^2 calculation for test data
+  
+  test_r2 <- 
+    test_data %>%
+    summarise(across(starts_with("H15"), ~{
+      fitted <- test_predicted[[cur_column()]]
+      r_squared <- 1 - sum((.x-fitted)^2)/sum((.x-mean(.x))^2)
+      r_squared
+    }))
+  
+  test_adjusted_r2 <-
+    test_data %>%
+    summarise(across(starts_with("H15"), ~{
+      r_squared <- test_r2[[cur_column()]]
+      N <- nrow(test_data)
+      p <- 6
+      adj_r_squared <- 1 - ((1-r_squared)*(N-1))/(N-p-1)
+      adj_r_squared
+    }))
+
+  return(list(fitted_values = fitted_values, beta_values = beta_values, adj_r_squared_values = adj_r_squared_values, test_predicted = test_predicted, test_resids = test_resids, test_r2 = test_r2, test_adjusted_r2 = test_adjusted_r2))
+}
+
+backtest_r2 <- function(predicted, observed) {
+  r2 <- 
+    observed %>%
+    summarise(across(starts_with("H15"), ~{
+      fitted <- predicted[[cur_column()]]
+      r_squared <- 1 - sum((.x-fitted)^2)/sum((.x-mean(.x))^2)
+      r_squared
+    }))
+
+  return(r2=r2)
+}
+
+reg_func <- function(y, X, nfolds = 10, alpha = 0.5, gamma = 0, measure = "mse") {
+  set.seed(123)
+  X <- X %>% as.matrix()
+  mod_fit <- cv.glmnet(x = X, y = y, nfolds = nfolds, alpha = alpha, type.measure = measure, gamma = gamma, relax = TRUE)
+  betas <- coef(mod_fit,s="lambda.min",gamma = "gamma.min") %>% as.matrix()
+  fitted <- predict(mod_fit,newx=X,s="lambda.min", gamma = "gamma.min") 
+  r_squared <- 1 - sum((y-fitted)^2)/sum((y-mean(y))^2)
+  N <- length(y)
+  p <- length(betas[betas!=0])
+  adj_r_squared <- 1 - ((1-r_squared)*(N-1))/(N-p-1)
+  return(list(betas=betas, fitted=fitted, r_squared=r_squared, adj_r_squared=adj_r_squared))
+}
+
+returns_regression <- function(returns_and_resids, test_data) {
+  
+  fitted_values <-
+    returns_and_resids %>% 
+    mutate(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$fitted)) %>% 
+    select(!starts_with("term")) 
+  
+  beta_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$betas))
+  
+  r_squared_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$r_squared))
+  
+  adj_r_squared_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$adj_r_squared))
+  
+  # Matrix for test data
+  X_test <- cbind(1, test_data$term_1, test_data$term_2, test_data$term_5, test_data$term_7, test_data$term_10, test_data$term_20)
+  beta_matrix <- as.matrix(beta_values)
+  
+  # Use matrix multiplication to calculate predicted values for the test data
+  test_predicted <- as.data.frame(X_test %*% beta_matrix)
+  colnames(test_predicted) <- colnames(returns_and_resids)[grepl("H15", colnames(returns_and_resids))]  # Set column names to match the H15 columns
+  
+  # Calculate residuals for test data
+  test_resids <- 
+    test_data %>%
+    mutate(across(starts_with("H15"), ~{
+      predicted <- test_predicted[[cur_column()]]
+      .x - predicted
+    }))
+  
+
+  return(list(returns_and_resids = returns_and_resids, fitted_values = fitted_values, beta_values = beta_values, r_squared_values = r_squared_values, adj_r_squared_values=adj_r_squared_values, test_predicted = test_predicted, test_resids = test_resids))
+}
+
+average_returns_regression <- function(returns_and_resids, test_data) {
+  returns_and_resids_ave <- 
+    returns_and_resids %>% 
+    mutate(ave_return = rowMeans(across(starts_with("H15T")))) %>% 
+    mutate(ave_term = rowMeans(across(starts_with("term") & !ends_with("1")))) %>% 
+    select("datestamp","term_1", "ave_term", "ave_return") 
+  
+  cf <- lm(returns_and_resids_ave$ave_return ~ returns_and_resids_ave$term_1 + returns_and_resids_ave$ave_term)$fitted.values
+  beta_values <- lm(returns_and_resids_ave$ave_return ~ returns_and_resids_ave$term_1 + returns_and_resids_ave$ave_term)$coef
+  adj_r_squared_cf <- summary(lm(returns_and_resids_ave$ave_return ~ returns_and_resids_ave$term_1 + returns_and_resids_ave$ave_term))$adj.r.squared
+  
+  eq_17_betas <-
+    returns_and_resids %>% 
+    select("datestamp", starts_with("H15T")) %>% 
+    mutate(cf = cf) %>% 
+    summarise(across(starts_with("H15T"), ~lm(.x~cf)$coef))
+  
+  eq_17_adj_r_square <-
+    returns_and_resids %>% 
+    select("datestamp", starts_with("H15T")) %>% 
+    mutate(cf = cf) %>% 
+    summarise(across(starts_with("H15T"), ~summary(lm(.x~cf))$adj.r.squared))
+  
+  test_data_ave <-
+    test_data %>% 
+    mutate(ave_return = rowMeans(across(starts_with("H15T")))) %>% 
+    mutate(ave_term = rowMeans(across(starts_with("term") & !ends_with("1")))) %>% 
+    select("datestamp","term_1", "ave_term", "ave_return")
+
+  X_test <- cbind(1, test_data_ave$term_1, test_data_ave$ave_term)
+  beta_matrix <- as.matrix(beta_values)
+  cf_oos <- as.vector(X_test %*% beta_matrix)
+  
+  
+  X_test_2 <- cbind(1, cf_oos) 
+  beta_matrix_2 <- as.matrix(eq_17_betas)
+  test_predicted <- as.data.frame(X_test_2 %*% beta_matrix_2)
+  colnames(test_predicted) <- colnames(returns_and_resids)[grepl("H15", colnames(returns_and_resids))]
+  
+  
+  
+  return(list(cf = cf, adj_r_squared_cf = adj_r_squared_cf, eq_17_betas = eq_17_betas, eq_17_adj_r_square = eq_17_adj_r_square, test_predicted = test_predicted))
+}
+```
+
+```{r useful stats -performace metrics}
+indices <- c("H15T1Y Index", "H15T2Y Index","H15T5Y Index", "H15T7Y Index", "H15T10Y Index", "H15T20Y Index")
+
+useful_stats <- function(predicted_oos_returns, observed_oos_returns){
+  predicted <- predicted_oos_returns
+  observed <- observed_oos_returns
+  TP <- NULL
+  TN <- NULL
+  FP <- NULL
+  FN <- NULL
+  accuracy <- NULL
+  precision <- NULL
+  recall <- NULL
+  F1 <- NULL
+  
+  
+  predicted_name <- deparse(substitute(predicted_oos_returns))
+  last_segment <- tail(unlist(strsplit(predicted_name, "_")), 1)
+  print(last_segment)
+  
+  
+  for(i in 1:length(indices)){
+    TP[i] <- sum(predicted[[i]] >= 0 & observed[[i]] >= 0) 
+    TN[i] <- sum(predicted[[i]] < 0 & observed[[i]] < 0) 
+    FP[i] <- sum(predicted[[i]]>= 0 & observed[[i]] < 0)
+    FN[i] <- sum(predicted[[i]] < 0 & observed[[i]] >= 0)
+    accuracy[i] <- (TP[i] + TN[i]) / (TP[i] + TN[i] + FP[i] + FN[i])
+    precision[i] <- (TP[i])/(TP[i]+FP[i])
+    recall[i] <- (TP[i])/(TP[i]+FN[i])
+    F1[i] <- (2 * precision[i] * recall[i])/(precision[i] + recall[i])
+  }
+  return(list(TP = TP, TN = TN, FP = FP, FN = FN, accuracy = accuracy, precision = precision, recall = recall, F1 = F1))
+}
+
+```
+
+
+```{r data us}
+# US DATA
+core_inflation_us <- read_csv("us_core_inflation.csv")
+traded_bonds_us <- read_csv("us_traded_bonds.csv")
+zero_coupon_yields_us <- read_csv("us_zero_coupon_yields.csv")
+
+# get tau value for us data
+tau_us <- get_tau(core_inflation = core_inflation_us, type = "weighted", v=0.987, freq = "yearly")
+
+# data for cycles
+cycle_regression_data_us <- regression_data_cycles(zero_coupon_yields = zero_coupon_yields_us, tau = tau_us)
+returns_us <- get_returns(traded_bonds = traded_bonds_us)
+nobs <- nrow(cycle_regression_data_us)-12
+
+#Backtest parameters
+test_steps <- 12 #number of observations in test set
+min_train <- 120 + (nobs %% test_steps) #to ensure all test sets are equal
+```
+
+```{r out of sample us}
+#Outpot storage variables. Other variables can be stored similarly
+predicted_oos_returns_us <- NULL
+observed_oos_returns_us <- NULL
+predicted_oos_returns_us_elastic <- NULL
+observed_oos_returns_us_elastic <- NULL
+predicted_oos_returns_us_factor <- NULL
+observed_oos_returns_us_factor <- NULL
+
+#Run backtest through time
+for (i in seq(from=min_train,to=nobs-test_steps,by=test_steps)) {
+  trainSet <- 1:i
+  testSet <- (i+1):(i+test_steps)
+  
+  #Calculate cycles
+  cycle_us <- get_cycles(train_data = cycle_regression_data_us[1:(i+test_steps),])
+  cycle_resids_us <- cycle_us$train_cycle_resids
+  cycle_betas_us <- cycle_us$train_cycle_betas
+  
+  #Cycles to predict traded yields
+  returns_and_resids_us <- returns_resids(returns = returns_us, cycle_resids = cycle_resids_us)
+  returns_and_resids_us_train <- returns_and_resids_us[trainSet, ]
+  returns_and_resids_us_test <- returns_and_resids_us[testSet, ]
+  
+  
+  regression_us_lm <- returns_regression_lm(returns_and_resids = returns_and_resids_us_train, test_data = returns_and_resids_us_test)
+  predicted_oos_returns_us <- rbind(predicted_oos_returns_us, regression_us_lm$test_predicted)
+  observed_oos_returns_us <- rbind(observed_oos_returns_us, returns_and_resids_us_test[,2:7])
+  
+  regression_us_elastic <- returns_regression(returns_and_resids = returns_and_resids_us_train, test_data = returns_and_resids_us_test)
+  predicted_oos_returns_us_elastic <- rbind(predicted_oos_returns_us_elastic, regression_us_elastic$test_predicted)
+  observed_oos_returns_us_elastic <- rbind(observed_oos_returns_us_elastic, returns_and_resids_us_test[,2:7])
+  
+  regression_us_factor <- average_returns_regression(returns_and_resids = returns_and_resids_us_train, test_data = returns_and_resids_us_test)
+  predicted_oos_returns_us_factor <- rbind(predicted_oos_returns_us_factor, regression_us_factor$test_predicted)
+  observed_oos_returns_us_factor <- rbind(observed_oos_returns_us_factor, returns_and_resids_us_test[,2:7])
+}
+
+backtest_r2(predicted_oos_returns_us, observed_oos_returns_us)
+backtest_r2(predicted_oos_returns_us_elastic, observed_oos_returns_us_elastic)
+backtest_r2(predicted_oos_returns_us_factor, observed_oos_returns_us_factor)
+
+plot(predicted_oos_returns_us_elastic$`H15T7Y Index`, observed_oos_returns_us_elastic$`H15T7Y Index`, ylab = "Observed", xlab = "Predicted", pch = 20)
+abline(v = 0, h = 0)
+
+useful_stats(predicted_oos_returns_us, observed_oos_returns_us)
+useful_stats(predicted_oos_returns_us_elastic, observed_oos_returns_us_elastic)
+useful_stats(predicted_oos_returns_us_factor, observed_oos_returns_us_factor)
+
+```
+
+```{r data sa}
+
+core_inflation_sa <- read_csv("sa_inflation.csv")
+traded_bonds_sa <- read_csv("sa_traded_bonds.csv")
+zero_coupon_yields_sa <- read_csv("sa_zero_coupon_yields.csv")
+# get tau value for us data
+tau_sa <- get_tau(core_inflation = core_inflation_sa, type = "weighted", v=0.987, freq = "yearly")
+
+# data for cycles
+cycle_regression_data_sa <- regression_data_cycles(zero_coupon_yields = zero_coupon_yields_sa, tau = tau_sa)
+returns_sa <- get_returns(traded_bonds = traded_bonds_sa)
+nobs <- nrow(cycle_regression_data_sa) - 12
+
+#Backtest parameters
+test_steps <- 12 #number of observations in test set
+min_train <- 120 + (nobs %% test_steps) #to ensure all test sets are equal
+```
+
+
+
+```{r out of sample sa}
+#Outpot storage variables. Other variables can be stored similarly
+predicted_oos_returns_sa <- NULL
+observed_oos_returns_sa <- NULL
+predicted_oos_returns_sa_elastic <- NULL
+observed_oos_returns_sa_elastic <- NULL
+predicted_oos_returns_sa_factor <- NULL
+observed_oos_returns_sa_factor <- NULL
+
+#Run backtest through time
+for (i in seq(from=min_train,to=nobs-test_steps,by=test_steps)) {
+  trainSet <- 1:i
+  testSet <- (i+1):(i+test_steps)
+  
+  #Calculate cycles
+  cycle_sa <- get_cycles(train_data = cycle_regression_data_sa[1:(i+test_steps),])
+  cycle_resids_sa <- cycle_sa$train_cycle_resids
+  cycle_betas_sa <- cycle_sa$train_cycle_betas
+  
+  #Cycles to predict traded yields
+  returns_and_resids_sa <- returns_resids(returns = returns_sa, cycle_resids = cycle_resids_sa)
+  returns_and_resids_sa_train <- returns_and_resids_sa[trainSet, ]
+  returns_and_resids_sa_test <- returns_and_resids_sa[testSet, ]
+  
+  
+  regression_sa_lm <- returns_regression_lm(returns_and_resids = returns_and_resids_sa_train, test_data = returns_and_resids_sa_test)
+  predicted_oos_returns_sa <- rbind(predicted_oos_returns_sa, regression_sa_lm$test_predicted)
+  observed_oos_returns_sa <- rbind(observed_oos_returns_sa, returns_and_resids_sa_test[,2:7])
+  
+  regression_sa_elastic <- returns_regression(returns_and_resids = returns_and_resids_sa_train, test_data = returns_and_resids_sa_test)
+  predicted_oos_returns_sa_elastic <- rbind(predicted_oos_returns_sa_elastic, regression_sa_elastic$test_predicted)
+  observed_oos_returns_sa_elastic <- rbind(observed_oos_returns_sa_elastic, returns_and_resids_sa_test[,2:7])
+  
+  regression_sa_factor <- average_returns_regression(returns_and_resids = returns_and_resids_sa_train, test_data = returns_and_resids_sa_test)
+  predicted_oos_returns_sa_factor <- rbind(predicted_oos_returns_sa_factor, regression_sa_factor$test_predicted)
+  observed_oos_returns_sa_factor <- rbind(observed_oos_returns_sa_factor, returns_and_resids_sa_test[,2:7])
+}
+
+backtest_r2(predicted_oos_returns_sa, observed_oos_returns_sa)
+backtest_r2(predicted_oos_returns_sa_elastic, observed_oos_returns_sa_elastic)
+backtest_r2(predicted_oos_returns_sa_factor, observed_oos_returns_sa_factor)
+
+useful_stats(predicted_oos_returns_sa, observed_oos_returns_sa)
+useful_stats(predicted_oos_returns_sa_elastic, observed_oos_returns_sa_elastic)
+useful_stats(predicted_oos_returns_sa_factor, observed_oos_returns_sa_factor)
+```
+
+
+
+
+
+
+```{r more functions}
+
+returns_regression_lm_2 <- function(returns_and_resids, test_data) {
+  # Regression as in equation 13
+  
+  fitted_values <-
+    returns_and_resids %>% 
+    mutate(across(starts_with("H15"),~lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20 + returns_and_resids$term_1_ + returns_and_resids$term_2_ + returns_and_resids$term_5_ + returns_and_resids$term_7_ + returns_and_resids$term_10_ + returns_and_resids$term_20_)$fitted.values)) %>% 
+    select(!starts_with("term")) 
+  
+  beta_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20 + returns_and_resids$term_1_ + returns_and_resids$term_2_ + returns_and_resids$term_5_ + returns_and_resids$term_7_ + returns_and_resids$term_10_ + returns_and_resids$term_20_)$coef)) 
+  
+  adj_r_squared_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~summary(lm(.x ~ returns_and_resids$term_1 + returns_and_resids$term_2 + returns_and_resids$term_5 + returns_and_resids$term_7 + returns_and_resids$term_10 + returns_and_resids$term_20 + returns_and_resids$term_1_ + returns_and_resids$term_2_ + returns_and_resids$term_5_ + returns_and_resids$term_7_ + returns_and_resids$term_10_ + returns_and_resids$term_20_))$adj.r.squared))
+  
+   X_test <- cbind(1, test_data$term_1, test_data$term_2, test_data$term_5, test_data$term_7, test_data$term_10, test_data$term_20, test_data$term_1_, test_data$term_2_, test_data$term_5_, test_data$term_7_, test_data$term_10_, test_data$term_20_)
+  beta_matrix <- as.matrix(beta_values)
+  
+  # Use matrix multiplication to calculate predicted values for the test data
+  test_predicted <- as.data.frame(X_test %*% beta_matrix)
+  colnames(test_predicted) <- colnames(returns_and_resids)[grepl("H15", colnames(returns_and_resids))]  # Set column names to match the H15 columns
+  
+
+  return(list(fitted_values = fitted_values, beta_values = beta_values, adj_r_squared_values = adj_r_squared_values, test_predicted = test_predicted))
+}
+
+returns_regression_2 <- function(returns_and_resids, test_data) {
+  
+  fitted_values <-
+    returns_and_resids %>% 
+    mutate(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$fitted)) %>% 
+    select(!starts_with("term")) 
+  
+  beta_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$betas))
+  
+  r_squared_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$r_squared))
+  
+  adj_r_squared_values <- 
+    returns_and_resids %>% 
+    summarise(across(starts_with("H15"),~reg_func(.x, returns_and_resids %>% select(starts_with("term")), 10, 0.5, gamma = 0, "mse")$adj_r_squared))
+  
+  # Matrix for test data
+  X_test <- cbind(1, test_data$term_1, test_data$term_2, test_data$term_5, test_data$term_7, test_data$term_10, test_data$term_20, test_data$term_1_, test_data$term_2_, test_data$term_5_, test_data$term_7_, test_data$term_10_, test_data$term_20_)
+  beta_matrix <- as.matrix(beta_values)
+  
+  # Use matrix multiplication to calculate predicted values for the test data
+  test_predicted <- as.data.frame(X_test %*% beta_matrix)
+  colnames(test_predicted) <- colnames(returns_and_resids)[grepl("H15", colnames(returns_and_resids))]  # Set column names to match the H15 columns
+  
+  # Calculate residuals for test data
+  test_resids <- 
+    test_data %>%
+    mutate(across(starts_with("H15"), ~{
+      predicted <- test_predicted[[cur_column()]]
+      .x - predicted
+    }))
+  
+
+  return(list(returns_and_resids = returns_and_resids, fitted_values = fitted_values, beta_values = beta_values, r_squared_values = r_squared_values, adj_r_squared_values=adj_r_squared_values, test_predicted = test_predicted, test_resids = test_resids))
+}
+```
+
+```{r oos sa and us combined} 
+predicted_oos_returns_sa <- NULL
+observed_oos_returns_sa <- NULL
+predicted_oos_returns_sa_elastic <- NULL
+observed_oos_returns_sa_elastic <- NULL
+
+cycle_regression_data_us_joined <- cycle_regression_data_us[which(cycle_regression_data_us$datestamp == "1995-01-31"):nrow(cycle_regression_data_us),]
+cycle_regression_data_sa_joined <- cycle_regression_data_sa[1:350,]
+nobs_joined <- nrow(cycle_regression_data_sa_joined) - 12
+
+test_steps <- 12 #number of observations in test set
+min_train <- 120 + (nobs_joined %% test_steps) #to ensure all test sets are equal
+
+#Run backtest through time
+for (i in seq(from=min_train,to=nobs-test_steps,by=test_steps)) {
+  trainSet <- 1:i
+  testSet <- (i+1):(i+test_steps)
+
+  #Calculate cycles
+  cycle_sa <- get_cycles(train_data = cycle_regression_data_sa_joined[1:(i+test_steps),])
+  cycle_us <- get_cycles(train_data = cycle_regression_data_us_joined[1:(i+test_steps),])
+
+  cycle_resids_sa <- cycle_sa$train_cycle_resids
+  cycle_betas_sa <- cycle_sa$train_cycle_betas
+
+  cycle_resids_us <- cycle_us$train_cycle_resids
+  cycle_betas_us <- cycle_us$train_cycle_betas
+
+  colnames(cycle_resids_us) <- c("datestamp","term_1_", "term_2_", "term_5_", "term_7_", "term_10_", "term_20_")
+  cycle_resids_all <- left_join(cycle_resids_sa, cycle_resids_us, by = "datestamp")
+
+
+  #Cycles to predict traded yields
+  returns_and_resids_sa <- returns_resids(returns = returns_sa, cycle_resids = cycle_resids_all)
+  returns_and_resids_sa_train <- returns_and_resids_sa[trainSet, ]
+  returns_and_resids_sa_test <- returns_and_resids_sa[testSet, ]
+  
+  
+  regression_sa_lm <- returns_regression_lm_2(returns_and_resids = returns_and_resids_sa_train, test_data = returns_and_resids_sa_test)
+  regression_sa_lm$beta_values
+  predicted_oos_returns_sa <- rbind(predicted_oos_returns_sa, regression_sa_lm$test_predicted)
+  observed_oos_returns_sa <- rbind(observed_oos_returns_sa, returns_and_resids_sa_test[,2:7])
+
+  regression_sa_elastic <- returns_regression_2(returns_and_resids = returns_and_resids_sa_train, test_data = returns_and_resids_sa_test)
+  predicted_oos_returns_sa_elastic <- rbind(predicted_oos_returns_sa_elastic, regression_sa_elastic$test_predicted)
+  observed_oos_returns_sa_elastic <- rbind(observed_oos_returns_sa_elastic, returns_and_resids_sa_test[,2:7])
+
+}
+
+backtest_r2(predicted_oos_returns_sa, observed_oos_returns_sa)
+backtest_r2(predicted_oos_returns_sa_elastic,observed_oos_returns_sa_elastic)
+
+
+plot(predicted_oos_returns_sa_elastic$`H15T7Y Index`, observed_oos_returns_sa_elastic$`H15T7Y Index`, ylab = "Observed", xlab = "Predicted", pch = 20)
+abline(v = 0, h = 0)
+
+
+#remember to run the combined cycles before this
+useful_stats(predicted_oos_returns_sa, observed_oos_returns_sa)
+useful_stats(predicted_oos_returns_sa_elastic, observed_oos_returns_sa_elastic)
+
+```
+
+
+
+
+
+
+
+
+
+
+

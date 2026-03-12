@@ -1,0 +1,928 @@
+---
+title: "Bid-Ask Spreads"
+author: "Jake Mc Leroth"
+date: "2025-09-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r libraries}
+# EVT QQ Plots
+library(ReIns)
+
+# Read in data
+library(readxl)
+
+# Modifying data
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(ISOweek)
+
+# Plotting
+library(ggplot2)
+
+# Stats libraries
+library(tseries)
+library(urca)
+library(moments)
+
+# EVT Libraries
+library(ismev)
+library(extRemes)
+library(fExtremes)
+```
+
+# Data Preprocessing
+```{r data}
+# Read in data
+data_raw <- read_xlsx("firstrand_data.xlsx") %>%
+  rename(
+    date       = `Date`,
+    last_price = `Last Price`,
+    ask_price  = `Ask Price`,
+    bid_price  = `Bid Price`
+  )
+
+# Make is chronological
+data_raw <- data_raw %>% arrange(date)
+```
+
+```{r Cleaning: Missing Values}
+# First Issue: Missing values
+colSums(is.na(data_raw)) # Output number of missing values per column
+data_raw[rowSums(is.na(data_raw)) > 0, ] # Output missing values
+data <- data_raw
+# data <- data_raw %>% drop_na() # Drop missing values
+```
+
+```{r Cleaning: Monotinicity}
+# Check Monotinicity (Ask must always be larger than bid)
+sum(data$ask_price < data$bid_price, na.rm = TRUE) # Number of Errors
+data %>% filter(ask_price <= bid_price) # Output the error
+# Instead of removing rows, set bad quotes to NA
+bad_idx <- data$ask_price <= data$bid_price
+data$ask_price[bad_idx] <- NA
+data$bid_price[bad_idx] <- NA
+```
+
+```{r Cleaning: bid-ask error}
+# Check that last price is always between bid and ask
+sum(data$last_price < data$bid_price | data$last_price > data$ask_price, na.rm = TRUE) # output number of errors
+
+# Output the problematic rows
+data %>% filter(last_price < bid_price | last_price > ask_price)
+
+# Set only the first problematic last_price to NA
+bad_index <- which(data$last_price < data$bid_price | data$last_price > data$ask_price)[1]
+data$last_price[bad_index] <- NA
+data$ask_price[bad_index] <- NA
+data$bid_price[bad_index] <- NA
+```
+
+```{r Cleaning: Duplicates and Ordering}
+# Duplicates (should be 0)
+sum(duplicated(data))
+
+# Checks date ordering (should be FALSE) 
+any(diff(data$date) < 0)
+```
+
+```{r calculate spreads}
+data_spreads <- data %>%
+  mutate(
+    spread        = ask_price - bid_price,
+    spread_rel = ((ask_price - bid_price) / (ask_price + bid_price)) * 2 * 100,
+    spread_dif = (spread_rel - lag(spread_rel)),
+    spread_log = log(spread_rel/lag(spread_rel)) * 100
+  )
+
+# Drop all NA / ±Inf log-returns (including the first lagged one)
+sum(!is.finite(data_spreads$spread_log)) # number of non-finite returns
+
+data_spreads <- data_spreads %>%
+  filter(is.finite(spread_log))
+```
+
+```{r prices plots}
+ggplot(data_spreads[6083:nrow(data_spreads),],aes(x=date)) +
+  geom_line(aes(y=last_price, colour="Last"), linewidth=0.4) +
+  geom_line(aes(y=bid_price,  colour="Bid"),  linewidth=0.4) +
+  geom_line(aes(y=ask_price,  colour="Ask"),  linewidth=0.4) +
+  labs(
+    title  = "FirstRand LTD Price with Bid–Ask Quotes",
+    x      = "Date",
+    y      = "Price",
+    colour = "Series"
+  ) +
+  theme_minimal()
+```
+
+
+# Exploratory Data Analysis
+```{r summary stats}
+print("Spreads: ")
+summary(data_spreads$spread)
+print("Quoted Spreads (%): ")
+summary(data_spreads$spread_rel)
+print("Change in spreads: ")
+summary(data_spreads$spread_dif)
+print("Log Return (%): ")
+summary(data_spreads$spread_log)
+```
+
+## Spreads
+```{r absolute spread time series plots}
+# # Plot 1: Absolute spread
+ggplot(data_spreads, aes(x = date, y = spread)) +
+  geom_line(color = "steelblue") +
+  labs(title = "Bid-Ask Spread Over Time", x = "Time", y = "Spread") +
+  theme_minimal()
+
+acf(data_spreads$spread, main = "ACF of Bid-Ask Spreads")
+acf(data_spreads$spread, type = "partial", main = "PACF of Bid-Ask Spreads")
+```
+
+```{r Spreads adf test}
+adf.test(data_spreads$spread)
+kpss.test(data_spreads$spread, null = "Level")
+```
+
+```{r absolute spread empirical plots}
+# # Histogram with density overlay
+# ggplot(data_spreads, aes(x = spread)) +
+#   geom_histogram(aes(y = ..density..), bins = 50, fill = "steelblue", alpha = 0.6) +
+#   geom_density(color = "darkred", size = 1) +
+#   labs(
+#     title = "Histogram of Absolute Spread with Density Overlay",
+#     x = "Absolute Spread",
+#     y = "Density"
+#   ) +
+#   theme_minimal()
+# 
+# # Box plot
+# boxplot(data_spreads$spread, main = paste("Boxplot of", "Bid-Ask Spreads"), col = "skyblue")
+# 
+# # Skewness and Kurtosis
+# print("Skewness: ")
+# skewness(data_spreads$spread)
+# print("Excess Kurtosis: ")
+# kurtosis(data_spreads$spread) - 3
+# 
+# # Normal Q-Q plot
+# ggplot(data_spreads, aes(sample = spread)) +
+#   stat_qq(color = "steelblue") +
+#   stat_qq_line(color = "darkred", linetype = "dashed") +
+#   labs(
+#     title = "Normal Q-Q Plot of Absolute Spread",
+#     x = "Theoretical Quantiles",
+#     y = "Sample Quantiles"
+#   ) +
+#   theme_minimal()
+# 
+# # Pareto Q-Q Plot
+# ParetoQQ(data_spreads[data_spreads$spread>0,]$spread, main = paste("Pareto QQ-Plot", "Spreads"))
+# 
+# # Lognormal Q-Q plot
+# LognormalQQ(data_spreads[data_spreads$spread>0,]$spread, main = paste("Lognormal QQ-Plot", "Spreads"))
+# 
+# # Exponential Q-Q Plot
+# ExpQQ(data_spreads[data_spreads$spread>0,]$spread, main = paste("Exponential QQ-Plot", "Spreads"))
+
+```
+
+## Relative Spreads
+```{r Quoted spreads time series plots}
+
+ggplot(data_spreads, aes(x = date, y = spread_rel)) +
+  geom_line(color = "darkgreen") +
+  labs(title = "Relative Spread Over Time", x = "Time", y = "Spread") +
+  theme_minimal()
+
+
+acf(data_spreads$spread_rel, main = "ACF of Relative Spreads")
+acf(data_spreads$spread_rel, type = "partial", main = "PACF of Relative Spreads")
+```
+
+```{r quoted spreads empirical plots}
+# 
+# # Histogram with density overlay
+# ggplot(data_spreads, aes(x = spread_rel)) +
+#   geom_histogram(aes(y = ..density..), bins = 50, fill = "steelblue", alpha = 0.6) +
+#   geom_density(color = "darkred", size = 1) +
+#   labs(
+#     title = "Histogram of Quoted Spread with Density Overlay",
+#     x = "Percentage Spread",
+#     y = "Density"
+#   ) +
+#   theme_minimal()
+# 
+# # Box plot
+# boxplot(data_spreads$spread_rel, main = paste("Boxplot of", "Bid-Ask Spreads"), col = "skyblue")
+# 
+# # Skewness and Kurtosis
+# print("Skewness: ")
+# skewness(data_spreads$spread_rel)
+# print("Excess Kurtosis: ")
+# kurtosis(data_spreads$spread_rel) - 3
+# 
+# # Normal Q-Q plot
+# ggplot(data_spreads, aes(sample = spread_rel)) +
+#   stat_qq(color = "steelblue") +
+#   stat_qq_line(color = "darkred", linetype = "dashed") +
+#   labs(
+#     title = "Normal Q-Q Plot of Quoted Spread",
+#     x = "Theoretical Quantiles",
+#     y = "Sample Quantiles"
+#   ) +
+#   theme_minimal()
+# 
+# # Pareto Q-Q Plot
+# ParetoQQ(data_spreads[data_spreads$spread_rel>0,]$spread_rel, main = paste("Pareto QQ-Plot", "Quoted Spreads"))
+# 
+# # Lognormal Q-Q plot
+# LognormalQQ(data_spreads[data_spreads$spread_rel>0,]$spread_rel, main = paste("Lognormal QQ-Plot", "Quoted Spreads"))
+# 
+# # Exponential Q-Q Plot
+# ExpQQ(data_spreads[data_spreads$spread_rel>0,]$spread_rel, main = paste("Exponential QQ-Plot", "Quoted Spreads"))
+
+```
+
+```{r Quoted spreads stationarity test}
+adf.test(data_spreads$spread_rel)
+kpss.test(data_spreads$spread_rel, null = "Level")
+```
+
+## Change of spreads
+```{r log return spread time series plots}
+# # Time series line plot
+# ggplot(data_spreads, aes(x = date, y = spread_dif)) +
+#   geom_line(color = "firebrick") +
+#   labs(
+#     title = "Spread Change Over Time",
+#     x = "Time",
+#     y = "Spread (%)"
+#   ) +
+#   theme_minimal()
+# 
+# # ACF and PACF
+# acf(data_spreads$spread_dif)
+# acf(data_spreads$spread_dif, type = "partial")
+
+```
+
+```{r log return spread empirical plots}
+# # Histogram with density overlay
+# ggplot(data_spreads, aes(x = spread_dif)) +
+#   geom_histogram(aes(y = ..density..), bins = 50, fill = "steelblue", alpha = 0.6) +
+#   geom_density(color = "darkred", size = 1) +
+#   labs(
+#     title = "Histogram of Change in Spread with Density Overlay",
+#     x = "Percentage Spread",
+#     y = "Density"
+#   ) +
+#   theme_minimal()
+# 
+# # Box plot
+# boxplot(data_spreads$spread_dif, main = paste("Boxplot of", "Change in Spread"), col = "skyblue")
+# 
+# # Skewness and Kurtosis
+# print("Skewness: ")
+# skewness(data_spreads$spread_dif)
+# print("Excess Kurtosis: ")
+# kurtosis(data_spreads$spread_dif) - 3
+# 
+# # Normal Q-Q plot
+# ggplot(data_spreads, aes(sample = spread_dif)) +
+#   stat_qq(color = "steelblue") +
+#   stat_qq_line(color = "darkred", linetype = "dashed") +
+#   labs(
+#     title = "Normal Q-Q Plot of Percentage Spread",
+#     x = "Theoretical Quantiles",
+#     y = "Sample Quantiles"
+#   ) +
+#   theme_minimal()
+# 
+# 
+# # positive values
+# data_spreads_dif_pos <- data_spreads[data_spreads$spread_dif>0,]$spread_dif
+# 
+# # Pareto Q-Q Plot
+# # ParetoQQ(data_spreads$spread_log, main = paste("Pareto QQ-Plot", "Spreads"))
+# ParetoQQ(data_spreads_dif_pos, main = paste("Pareto QQ-Plot", "Positive Log Return Spreads"))
+# 
+# # Lognormal Q-Q plot
+# # LognormalQQ(data_spreads$spread_log, main = paste("Lognormal QQ-Plot", "Spreads"))
+# LognormalQQ(data_spreads_dif_pos, main = paste("Lognormal QQ-Plot", "Positive Log Return Spreads"))
+# 
+# # Exponential Q-Q Plot
+# # ExpQQ(data_spreads$spread_log, main = paste("Exponential QQ-Plot", "Spreads"))
+# ExpQQ(data_spreads_dif_pos, main = paste("Exponential QQ-Plot", "Positive Log Return Spreads"))
+
+```
+
+```{r derivative plots}
+# MeanExcess(data_spreads_dif_pos, plot = TRUE, main = paste("Exponential Derivative", ""))
+# ParetoQQ_der(data_spreads_dif_pos, main = paste("Pareto Derivative", ""))
+# LognormalQQ_der(data_spreads_dif_pos, main = paste("Lognormal Derivative", ""))
+```
+
+```{r log return spread stationarity test}
+# w <- NULL
+# 
+# res <- withCallingHandlers(
+#   adf.test(data_spreads$spread_dif),
+#   warning = function(war) {
+#     w <<- conditionMessage(war)   # store the warning text
+#     invokeRestart("muffleWarning")  # THIS now works
+#   }
+# )
+# 
+# # Print everything neatly
+# cat("Warning:\n", w, "\n\n")
+# print(res)
+# 
+# w <- NULL
+# 
+# res <- withCallingHandlers(
+#   kpss.test(data_spreads$spread_dif, null = "Level"),
+#   warning = function(war) {
+#     w <<- conditionMessage(war)   # store the warning text
+#     invokeRestart("muffleWarning")  # THIS now works
+#   }
+# )
+# 
+# # Print everything neatly
+# cat("Warning:\n", w, "\n\n")
+# print(res)
+# 
+# za_abs <- ur.za(data_spreads$spread_dif, model = "both")
+# summary(za_abs)
+```
+
+## Log change of spreads
+```{r log return spread time series plots}
+# Time series line plot
+ggplot(data_spreads, aes(x = date, y = spread_log)) +
+  geom_line(color = "firebrick") +
+  labs(
+    title = "Change in Log of Relative Spreads Over Time",
+    x = "Time",
+    y = "Spread (%)"
+  ) +
+  theme_minimal()
+
+# ACF and PACF
+acf(data_spreads$spread_log, main = "ACF of Change in Log of Relative Spreads")
+acf(data_spreads$spread_log, type = "partial", main = "PACF of Change in Log of Relative Spreads")
+
+```
+
+```{r log return spread empirical plots}
+# # Histogram with density overlay
+# ggplot(data_spreads, aes(x = spread_log)) +
+#   geom_histogram(aes(y = ..density..), bins = 50, fill = "steelblue", alpha = 0.6) +
+#   geom_density(color = "darkred", size = 1) +
+#   labs(
+#     title = "Histogram of Percentage Spread with Density Overlay",
+#     x = "Percentage Spread",
+#     y = "Density"
+#   ) +
+#   theme_minimal()
+# 
+# # Box plot
+# boxplot(data_spreads$spread_log, main = paste("Boxplot of", "Bid-Ask Spreads"), col = "skyblue")
+# 
+# # Skewness and Kurtosis
+# print("Skewness: ")
+# skewness(data_spreads$spread_log)
+# print("Excess Kurtosis: ")
+# kurtosis(data_spreads$spread_log) - 3
+# 
+# # Normal Q-Q plot
+# ggplot(data_spreads, aes(sample = spread_log)) +
+#   stat_qq(color = "steelblue") +
+#   stat_qq_line(color = "darkred", linetype = "dashed") +
+#   labs(
+#     title = "Normal Q-Q Plot of Percentage Spread",
+#     x = "Theoretical Quantiles",
+#     y = "Sample Quantiles"
+#   ) +
+#   theme_minimal()
+# 
+# 
+# # positive values
+# data_spreads_pos <- data_spreads[data_spreads$spread_log>0,]$spread_log
+# 
+# # Pareto Q-Q Plot
+# # ParetoQQ(data_spreads$spread_log, main = paste("Pareto QQ-Plot", "Spreads"))
+# ParetoQQ(data_spreads_pos, main = paste("Pareto QQ-Plot", "Positive Log Return Spreads"))
+# 
+# # Lognormal Q-Q plot
+# # LognormalQQ(data_spreads$spread_log, main = paste("Lognormal QQ-Plot", "Spreads"))
+# LognormalQQ(data_spreads_pos, main = paste("Lognormal QQ-Plot", "Positive Log Return Spreads"))
+# 
+# # Exponential Q-Q Plot
+# # ExpQQ(data_spreads$spread_log, main = paste("Exponential QQ-Plot", "Spreads"))
+# ExpQQ(data_spreads_pos, main = paste("Exponential QQ-Plot", "Positive Log Return Spreads"))
+
+```
+
+```{r derivative plots}
+# MeanExcess(data_spreads_pos, plot = TRUE, main = paste("Exponential Derivative", ""))
+# ParetoQQ_der(data_spreads_pos, main = paste("Pareto Derivative", ""))
+# LognormalQQ_der(data_spreads_pos, main = paste("Lognormal Derivative", ""))
+```
+
+```{r log return spread stationarity test}
+adf.test(data_spreads$spread_log)
+kpss.test(data_spreads$spread_log, null = "Level")
+```
+
+
+
+# EVT Modelling
+```{r GEV Fit}
+block_size <- 22
+n_blocks <- floor(length(data_spreads$spread_log) / block_size)
+
+# Trim to an exact multiple of the block size
+spread_log_trimmed <- tail(data_spreads$spread_log, n_blocks * block_size)
+
+
+cat("MLE: \n")
+gev <- gevFit(x = spread_log_trimmed, block = block_size, type = "mle", title = "GEV fit daily returns", description = "Maximum liklihood method is used")
+mle_estimates <- gev@fit$par.ests
+names(mle_estimates) <- c("gamma", "mu", "sigma")
+mle_vcv <- gev@fit$varcov
+mle_se <- gev@fit$par.ses
+names(mle_se) <- c("gamma", "mu", "sigma")
+colnames(mle_vcv) <- c("gamma", "mu", "sigma")
+rownames(mle_vcv) <- c("gamma", "mu", "sigma")
+print(mle_estimates)
+mle_estimates_lower <- mle_estimates - qnorm(0.975)*mle_se
+mle_estimates_upper <- mle_estimates + qnorm(0.975)*mle_se
+gev_ci <- cbind(mle_estimates_lower,mle_estimates_upper)
+colnames(gev_ci) <- c("Lower", "Upper")
+rownames(gev_ci) <- c("gamma", "mu", "sigma")
+gev_ci
+cat("\n")
+cat("SE: \n")
+mle_se
+```
+
+```{r QQ}
+
+# Reshape into a matrix: each column is a block
+x_mat <- matrix(spread_log_trimmed, nrow = block_size, ncol = n_blocks)
+# Block maxima
+block_maxima <- apply(x_mat, 2, max)
+
+start_vals <- list(
+  location = mle_estimates["mu"],
+  scale    = mle_estimates["sigma"],
+  shape    = mle_estimates["gamma"]
+)
+# extRemes
+gev_ext <- fevd(
+  x      = block_maxima,
+  type   = "GEV",
+  method = "MLE",
+  initial = start_vals,
+  units = "Log Return (%)", 
+  period.basis = "month"
+)
+
+plot.fevd(x = gev_ext, type = "qq", main = "GEV QQ Plot")
+plot.fevd(x = gev_ext, type ="rl", main = "Return Level Plot")
+```
+```{r Profile Likelihood}
+ci(gev_ext, type = "parameter", which.par =  3, xrange = c(-0.235, -0.07),method = "proflik", verbose = TRUE, nint=1000,
+           main = "Profile Likelihood of Gamma")
+
+```
+
+```{r sanity check for parameter estimates}
+# ismev
+cat("ismev: \n")
+gev_ismev <- gev.fit(block_maxima)
+gev.diag(gev_ismev)
+
+```
+```{r GEV Queantiles}
+gev_q <- function(p, mu, sigma, gamma){
+  if (gamma == 0){
+    mu - sigma * log(-log(p))
+  } else {
+    mu + (sigma/gamma) * ((-log(p))^(-gamma) - 1)
+  }
+}
+
+gev_kappa <- function(p, gamma, sigma) {
+  t  <- -log(1 - p)              # t = -log(1-p)
+  a  <- t^(-gamma)               # (-log(1-p))^(-gamma)
+
+  dq_dsigma <- (1 / gamma) * (a - 1)
+
+  dq_dgamma <- - (sigma / gamma^2) * (a - 1) -
+               (sigma / gamma)    *  a * log(t)
+
+  dq_dmu <- 1
+
+  # Return in order matching varcov: (gamma, mu, sigma)
+  c(gamma = dq_dgamma,
+    mu    = dq_dmu,
+    sigma = dq_dsigma)
+}
+
+gev_CI <- function(p_tail, est, vcv){
+  p_q <- 1 - p_tail  # CDF prob
+  
+  z_975 <- qnorm(0.975)
+  
+  qhat <- gev_q(
+    p     = p_q,                    # quantile prob
+    mu    = est[["mu"]],
+    sigma = est[["sigma"]],
+    gamma = est[["gamma"]]
+  )
+
+  kappa <- gev_kappa(
+    p     = p_tail,                 # *** tail prob here! ***
+    gamma = est[["gamma"]],
+    sigma = est[["sigma"]]
+  )
+
+  var_q <- as.numeric(t(kappa) %*% vcv %*% kappa)
+  se_q  <- sqrt(var_q)
+
+  ci <- c(
+    lower = qhat - z_975 * se_q,
+    upper = qhat + z_975 * se_q
+  )
+
+  list(qhat = qhat, se = se_q, CI = ci)
+}
+
+# Compute both:
+res_mle_001  <- gev_CI(0.01,  mle_estimates, mle_vcv)
+res_mle_0001 <- gev_CI(0.001, mle_estimates, mle_vcv)
+res_mle_00001 <- gev_CI(0.0001, mle_estimates, mle_vcv)
+
+cat("p=0.01: \n \n")
+cat("Estimate: ")
+res_mle_001$qhat
+cat("CI: \n")
+res_mle_001$CI
+cat("\n")
+cat("p=0.001: \n \n")
+cat("Estimate: ")
+res_mle_0001$qhat
+cat("CI: \n")
+res_mle_0001$CI
+cat("p=0.0001: \n \n")
+cat("Estimate: ")
+res_mle_00001$qhat
+cat("CI: \n")
+res_mle_00001$CI
+
+```
+
+```{r Quantile Profile Likelihood}
+ci(gev_ext, type="Return.level", method = "proflik",
+           xrange = c(384,460), verbose = TRUE, nint=1000,
+           main = "Profile Likelihood", return.period = 100, xlab = "100-month return level (p = 0.01)")
+
+ci(gev_ext, type="Return.level", method = "proflik",
+           xrange = c(420,550), verbose = TRUE, nint=1000,
+           main = "Profile Likelihood", return.period = 1000, xlab = "1000-month return level (p = 0.001)")
+
+ci(gev_ext, type="Return.level", method = "proflik",
+           xrange = c(450,625), verbose = TRUE, nint=1000,
+           main = "Profile Likelihood", return.period = 10000, xlab = "10000-month return level (p = 0.0001)")
+
+
+```
+
+```{r Upper endpoint}
+cat("GEV Upper Endpoint: \n")
+as.numeric(mle_estimates["mu"] - mle_estimates["sigma"]/mle_estimates["gamma"])
+```
+
+
+```{r Extremal Index}
+theta_blocks <- function(x, u, r){
+  x <- as.numeric(x)
+  n <- length(x)
+  k <- floor(n / r)
+  
+  if(k <= 0) stop("Block length r is too large for the sample size n.")
+  
+  # numerator: proportion of blocks whose max exceeds u
+  exceed_blocks <- logical(k)
+  for(j in seq_len(k)){
+    idx_start <- (j - 1) * r + 1
+    idx_end   <- j * r
+    block_max <- max(x[idx_start:idx_end], na.rm = TRUE)
+    exceed_blocks[j] <- block_max > u
+  }
+  num <- mean(exceed_blocks)  # k^{-1} sum 1{M > u}
+  
+  # denominator: r * (n^{-1} sum 1{X_i > u})
+  tail_prob_hat <- mean(x > u, na.rm = TRUE)
+  denom <- r * tail_prob_hat
+  
+  theta_hat <- num / denom
+  theta_hat
+}
+
+theta_blocks_sliding <- function(x, u, r){
+  x <- as.numeric(x)
+  n <- length(x)
+  
+  if(r >= n) stop("For sliding blocks, r must be < n.")
+  
+  n_blocks <- n - r + 1
+  
+  exceed_blocks <- logical(n_blocks)
+  for(i in seq_len(n_blocks)){
+    block_max <- max(x[i:(i + r - 1)], na.rm = TRUE)
+    exceed_blocks[i] <- block_max > u
+  }
+  num <- mean(exceed_blocks)  # (n-r+1)^{-1} sum 1{M > u}
+  
+  tail_prob_hat <- mean(x > u, na.rm = TRUE)
+  denom <- r * tail_prob_hat
+  
+  theta_hat <- num / denom
+  theta_hat
+}
+
+
+# Threshold probabilities
+p_vals <- c(0.98, 0.99, 0.995, 0.999)
+
+# Block size
+r <- block_size
+
+# Storage
+results <- data.frame(
+  p = p_vals,
+  u = NA,
+  theta_blocks = NA,
+  theta_sliding = NA
+)
+
+for(i in seq_along(p_vals)){
+  
+  p <- p_vals[i]
+  u <- quantile(spread_log_trimmed, probs = p)
+  
+  theta_B <- theta_blocks(spread_log_trimmed, u, r)
+  theta_B_sl <- theta_blocks_sliding(spread_log_trimmed, u, r)
+  
+  results$u[i] <- u
+  results$theta_blocks[i] <- theta_B
+  results$theta_sliding[i] <- theta_B_sl
+}
+
+print(results)
+
+```
+
+```{r Underlying Quantiles Estimates}
+theta <- 0.88
+
+gev_q_stationary <- function(p_tail, n, theta, mu, sigma, gamma){
+  # effective argument inside the log:
+  t <- -n * theta * log(1 - p_tail)   # t = -nθ log(1-p)
+  
+  if (gamma == 0){
+    mu - sigma * log(t)
+  } else {
+    mu + (sigma / gamma) * (t^(-gamma) - 1)
+  }
+}
+
+theta <- 0.88
+n_block <- 22   # block size, same as in your GEV fit
+
+gev_kappa_stationary <- function(p_tail, n, theta, gamma, sigma) {
+  # t = - n * theta * log(1 - p_tail)
+  t <- -n * theta * log(1 - p_tail)
+  a <- t^(-gamma)
+  
+  dq_dsigma <- (1 / gamma) * (a - 1)
+  
+  dq_dgamma <- - (sigma / gamma^2) * (a - 1) -
+               (sigma / gamma)    *  a * log(t)
+  
+  dq_dmu <- 1
+  
+  # Return in order matching varcov: (gamma, mu, sigma)
+  c(gamma = dq_dgamma,
+    mu    = dq_dmu,
+    sigma = dq_dsigma)
+}
+
+gev_CI_stationary <- function(p_tail, n, theta, est, vcv){
+  z_975 <- qnorm(0.975)
+  
+  # point estimate
+  qhat <- gev_q_stationary(
+    p_tail = p_tail,
+    n      = n,
+    theta  = theta,
+    mu     = est[["mu"]],
+    sigma  = est[["sigma"]],
+    gamma  = est[["gamma"]]
+  )
+  
+  # gradient
+  kappa <- gev_kappa_stationary(
+    p_tail = p_tail,
+    n      = n,
+    theta  = theta,
+    gamma  = est[["gamma"]],
+    sigma  = est[["sigma"]]
+  )
+  
+  # delta-method variance
+  var_q <- as.numeric(t(kappa) %*% vcv %*% kappa)
+  se_q  <- sqrt(var_q)
+  
+  ci <- c(
+    lower = qhat - z_975 * se_q,
+    upper = qhat + z_975 * se_q
+  )
+  
+  list(qhat = qhat, se = se_q, CI = ci)
+}
+res_stat_001   <- gev_CI_stationary(0.01,   n_block, theta, mle_estimates, mle_vcv)
+res_stat_0001  <- gev_CI_stationary(0.001,  n_block, theta, mle_estimates, mle_vcv)
+res_stat_00001 <- gev_CI_stationary(0.0001, n_block, theta, mle_estimates, mle_vcv)
+
+cat("p_tail = 0.01\n")
+res_stat_001$qhat
+res_stat_001$CI
+
+cat("\np_tail = 0.001\n")
+res_stat_0001$qhat
+res_stat_0001$CI
+
+cat("\np_tail = 0.0001\n")
+res_stat_00001$qhat
+res_stat_00001$CI
+
+```
+
+
+## Peaks Over Threshold
+```{r}
+
+MeanExcess(data_spreads$spread_log[data_spreads$spread_log>0])
+
+```
+
+```{r}
+
+gpd_reins <- GPDmle(data = data_spreads$spread_log[data_spreads$spread_log>0], plot = T)
+
+
+```
+```{r}
+u = 230
+
+log_ret_spreads_declustered <- decluster(x = data_spreads$spread_log, threshold = u, method = "runs", r = 5)
+log_ret_spreads_declustered
+
+
+gpd <- gpdFit(log_ret_spreads_declustered, u = u, type = "mle")
+cat("MLE: \n")
+gpd@fit$par.ests
+
+
+# Extract MLEs
+par_hat <- gpd@fit$par.ests      # xi and beta (scale)
+names(par_hat) <- c("gamma", "sigma")
+
+# Extract standard errors
+se_hat <- gpd@fit$par.ses
+names(se_hat) <- c("gamma", "sigma")
+
+# 95% Wald CI
+z <- qnorm(0.975)
+
+ci_lower <- par_hat - z * se_hat
+ci_upper <- par_hat + z * se_hat
+
+gpd_ci <- cbind(
+  Estimate = par_hat,
+  SE = se_hat,
+  Lower = ci_lower,
+  Upper = ci_upper
+)
+
+gpd_ci
+
+
+# extRemes
+start_vals <- list(
+  scale    = gpd@fit$par.ests["beta"],
+  shape    = gpd@fit$par.ests["xi"]
+)
+
+gpd_ext <- fevd(x = log_ret_spreads_declustered, threshold = u, type = "GP", method = "MLE", initial = start_vals, units = "Log Return (%)", period.basis = "month" )
+
+
+```
+```{r}
+plot.fevd(x = gpd_ext, type = "qq", main = "GEV QQ Plot")
+plot.fevd(x = gpd_ext, type ="rl", main = "Return Level Plot")
+
+```
+
+```{r f ii quantile estmates}
+gpd_q <- function(p_tail, sigma, gamma){
+  if (gamma == 0){
+    -sigma * log(p_tail)
+  } else {
+    (sigma / gamma) * (p_tail^(-gamma) - 1)
+  }
+}
+
+gamma_hat <- as.numeric(gpd@fit$par.ests[1])
+sigma_hat <- as.numeric(gpd@fit$par.ests[2])
+
+
+cat("Quantile estimate for p=0.01: \n")
+cat("MLE:")
+q_0.01 <- gpd_q(0.01,sigma_hat, gamma_hat)
+q_0.01 + u
+
+cat("Quantile estimate for p=0.001: \n")
+cat("MLE:")
+q_0.001 <- gpd_q(0.001,sigma_hat, gamma_hat)
+q_0.001 + u
+
+cat("Quantile estimate for p=0.0001: \n")
+cat("MLE:")
+q_0.0001 <- gpd_q(0.0001,sigma_hat, gamma_hat)
+q_0.0001 + u
+
+
+
+```
+
+
+
+
+```{r}
+gpd_p_underlying <- function(p, u, sigma, xi, zeta_u, theta){
+  # m = 1/p return period in time units
+  m <- 1 / p
+  
+  arg <- m * zeta_u * theta   # = θ ζu / p
+  if(arg <= 0) stop("θ * ζu / p must be > 0")
+  
+  if(xi == 0){
+    # Gumbel case
+    u + sigma * log(arg)
+  } else {
+    # General GPD case
+    u + (sigma / xi) * (arg^xi - 1)
+  }
+}
+
+zeta_u <- mean(data_spreads$spread_log > u, na.rm = TRUE)
+theta <- 0.7894754
+cat("Quantile estimate for p=0.01: \n")
+cat("MLE:")
+q_0.01_f <- gpd_p_underlying(0.01, u = u, sigma = par_hat["sigma"], xi = par_hat["gamma"], zeta_u = zeta_u, theta = theta)
+q_0.01_f 
+
+cat("Quantile estimate for p=0.001: \n")
+cat("MLE:")
+q_0.001_f <- gpd_p_underlying(0.001, u = u, sigma = par_hat["sigma"], xi = par_hat["gamma"], zeta_u = zeta_u, theta = theta)
+q_0.001_f  
+
+cat("Quantile estimate for p=0.0001: \n")
+cat("MLE:")
+q_0.0001_f <- gpd_p_underlying(0.0001, u = u, sigma = par_hat["sigma"], xi = par_hat["gamma"], zeta_u = zeta_u, theta = theta)
+q_0.0001_f 
+
+```
+```{r}
+cat("End point: \n")
+
+as.numeric(u - par_hat["sigma"]/par_hat["gamma"])
+```
+
+
+
+
+
