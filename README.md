@@ -1,7 +1,10 @@
-This repository contains projects and assignments I completed during my BCom(Hons) and MCom in Financial Risk Management.
+# Academic Portfolio
+## About
+This repository contains projects and assignments I completed during my BCom (Hons) and MCom in Financial Risk Management.
 
-projects/ - coursework projects and research completed as part of various modules
+## Structure
+`projects/` - large projects and research, contributing significantly to final marks
+`assignments/` - graded coursework tasks completed throughout various modules
 
-assignments/ - graded coursework tasks
-
-Languages: Python, R, C++
+## Languages
+Python, R, C++
