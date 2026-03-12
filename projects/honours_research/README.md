@@ -1,6 +1,6 @@
 # Honours Research: Expected Returns in Treasury Bonds
 
-This folder contains the code and write-up for my honours research project, co-authored with Nicole Lyne. We investigate the predictability of expected returns in government bond markets using yield-based factors, based on the Cieslak & Povala (2015) framework. The methodology is applied to US and SA bond data.
+This folder contains the code and write-up for my honours research project, co-authored with Nicole Lyne. We investigate the predictability of expected returns in treasury bonds using yield and inflation factors, based on the Cieslak & Povala (2015) framework. The methodology is applied to US and SA bond data.
 
 ## Contents
 
