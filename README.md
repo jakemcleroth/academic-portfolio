@@ -4,6 +4,7 @@ This repository contains projects and assignments I completed during my BCom (Ho
 
 ## Structure
 `projects/` - large projects and research, contributing significantly to final marks
+
 `assignments/` - graded coursework tasks completed throughout various modules
 
 ## Languages
