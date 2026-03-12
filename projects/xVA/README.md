@@ -17,7 +17,7 @@ The full write-up is in `xva_project_final.pdf`.
 
 | File                               | Description                                                                                                                         |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `antithetics.ipynb`                | Applies antithetic variates to reduce variance in EPE/PFE estimates for European and Asian options, with standard error comparisons |
+| `antithetics.ipynb`                | Applies antithetic variates to reduce variance in EPE/PFE estimates for European and Asian options |
 | `sample_recycling.ipynb`           | Implements the Sample Recycling Method for Asian option exposure                                                                    |
 | `vectorization.ipynb`              | Vectorised NumPy implementation of the exposure simulation, replacing Python loops for performance                                  |
 | `multiprocessing_asian_options.py` | Parallelised implementation for nested Monte Carlo                                                                                  |
