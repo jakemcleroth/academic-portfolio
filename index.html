@@ -26,14 +26,12 @@
       min-height: 100vh;
     }
 
-    /* ── Layout ── */
     .container {
       max-width: 860px;
       margin: 0 auto;
       padding: 0 2rem;
     }
 
-    /* ── Header ── */
     header {
       padding: 5rem 0 3rem;
       border-bottom: 1px solid var(--line);
@@ -58,7 +56,6 @@
       text-transform: uppercase;
     }
 
-    /* ── Nav ── */
     nav {
       padding: 1.4rem 0;
       border-bottom: 1px solid var(--line);
@@ -84,7 +81,6 @@
 
     nav a:hover, nav a.active { color: var(--ink); }
 
-    /* ── Section ── */
     section {
       padding: 4rem 0;
       opacity: 0;
@@ -92,7 +88,6 @@
     }
 
     section:nth-of-type(1) { animation-delay: 0.2s; }
-    section:nth-of-type(2) { animation-delay: 0.3s; }
 
     .section-label {
       font-family: 'DM Mono', monospace;
@@ -103,7 +98,6 @@
       margin-bottom: 2.5rem;
     }
 
-    /* ── Project Cards ── */
     .projects-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
@@ -188,7 +182,6 @@
       color: var(--accent);
     }
 
-    /* ── Footer ── */
     footer {
       border-top: 1px solid var(--line);
       padding: 2.5rem 0;
@@ -214,7 +207,6 @@
 
     footer a:hover { color: var(--ink); }
 
-    /* ── Animation ── */
     @keyframes fadeUp {
       from { opacity: 0; transform: translateY(16px); }
       to   { opacity: 1; transform: translateY(0); }
@@ -260,7 +252,7 @@
           </div>
         </a>
 
-        <a class="project-card" href="projects/evt/evt_bid_ask_spreads.html">
+        <a class="project-card" href="projects/evt/evt_project.pdf">
           <span class="project-tag">Extreme Value Theory</span>
           <h2 class="project-title">EVT & Bid-Ask Spreads</h2>
           <p class="project-desc">
@@ -268,8 +260,47 @@
             spreads, using GPD and GEV distributions for liquidity risk analysis.
           </p>
           <div class="project-footer">
-            <span class="project-lang">R</span>
+            <span class="project-lang">R &nbsp;·&nbsp; PDF</span>
             <span class="project-arrow">→</span>
+          </div>
+        </a>
+
+        <a class="project-card" href="projects/honour_research/honours_project_final.pdf">
+          <span class="project-tag">Honours Research</span>
+          <h2 class="project-title">Honours Research Project</h2>
+          <p class="project-desc">
+            Final research project completed as part of BCom (Hons) in Financial
+            Risk Management.
+          </p>
+          <div class="project-footer">
+            <span class="project-lang">PDF</span>
+            <span class="project-arrow">→</span>
+          </div>
+        </a>
+
+        <a class="project-card" href="var_index.html">
+          <span class="project-tag">Market Risk</span>
+          <h2 class="project-title">Value at Risk</h2>
+          <p class="project-desc">
+            A series of five assignments covering VaR methodologies including
+            historical simulation, parametric, and Monte Carlo approaches.
+          </p>
+          <div class="project-footer">
+            <span class="project-lang">5 assignments &nbsp;·&nbsp; PDF</span>
+            <span class="project-arrow">→</span>
+          </div>
+        </a>
+
+        <a class="project-card" href="https://nbviewer.org/github/jakemcleroth/academic-portfolio/blob/main/projects/gerber/gerber.ipynb" target="_blank">
+          <span class="project-tag">Portfolio Construction</span>
+          <h2 class="project-title">Gerber Statistic</h2>
+          <p class="project-desc">
+            Implementation of the Gerber statistic as a robust alternative to
+            Pearson correlation for portfolio optimisation under non-normal returns.
+          </p>
+          <div class="project-footer">
+            <span class="project-lang">Python &nbsp;·&nbsp; Jupyter</span>
+            <span class="project-arrow">↗</span>
           </div>
         </a>
 
