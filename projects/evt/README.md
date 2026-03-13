@@ -2,7 +2,7 @@
 
 This project applies Extreme Value Theory to model bid-ask spreads, using both the Block Maxima (GEV) and Peaks Over Threshold (GPD) approaches. The methodology is applied to the spreads from FirstRand Limited.
 
-The full write-up is in `evt_project.pdf`. Data sourced from Bloomberg, not included.
+The full write-up is in `evt_project.pdf`.
 
 ## Contents
 
