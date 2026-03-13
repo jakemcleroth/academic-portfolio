@@ -8,4 +8,4 @@ This repository contains projects and assignments I completed during my BCom (Ho
 `assignments/` - graded coursework tasks completed throughout various modules
 
 ## Languages
-Python, R, C++
+Python, R
