@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Value at Risk — Jake McLeroth</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg: #f7f5f2;
+      --ink: #1a1a18;
+      --muted: #7a7870;
+      --accent: #2a5c8f;
+      --line: #dedad4;
+      --card-bg: #ffffff;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 300;
+      line-height: 1.7;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    header {
+      padding: 5rem 0 3rem;
+      border-bottom: 1px solid var(--line);
+      opacity: 0;
+      animation: fadeUp 0.7s ease forwards;
+    }
+
+    .back {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-bottom: 2rem;
+      transition: color 0.2s;
+    }
+    .back:hover { color: var(--ink); }
+
+    .page-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(2rem, 4vw, 3rem);
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.5rem;
+    }
+
+    .page-sub {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+
+    section {
+      padding: 4rem 0;
+      opacity: 0;
+      animation: fadeUp 0.7s 0.15s ease forwards;
+    }
+
+    .assignment-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .assignment-item {
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      padding: 1.5rem 2rem;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: border-color 0.25s, transform 0.2s, box-shadow 0.25s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .assignment-item::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 3px;
+      height: 0;
+      background: var(--accent);
+      transition: height 0.3s ease;
+    }
+
+    .assignment-item:hover {
+      border-color: #c8c4bd;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.05);
+    }
+
+    .assignment-item:hover::before { height: 100%; }
+
+    .assignment-left {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .assignment-num {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.8rem;
+      color: var(--line);
+      line-height: 1;
+      min-width: 2rem;
+    }
+
+    .assignment-title {
+      font-size: 0.95rem;
+      font-weight: 400;
+    }
+
+    .assignment-meta {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      margin-top: 0.2rem;
+    }
+
+    .assignment-arrow {
+      font-size: 1rem;
+      color: var(--muted);
+      transition: transform 0.2s, color 0.2s;
+      flex-shrink: 0;
+    }
+
+    .assignment-item:hover .assignment-arrow {
+      transform: translateX(4px);
+      color: var(--accent);
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 2.5rem 0;
+      opacity: 0;
+      animation: fadeUp 0.7s 0.3s ease forwards;
+    }
+
+    footer p {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 600px) {
+      .assignment-num { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header>
+      <a class="back" href="index.html">← Back to portfolio</a>
+      <h1 class="page-title">Value at Risk</h1>
+      <p class="page-sub">Market Risk &nbsp;·&nbsp; 5 Assignments &nbsp;·&nbsp; PDF</p>
+    </header>
+
+    <section>
+      <div class="assignment-list">
+
+        <a class="assignment-item" href="projects/value_at_risk/assignment_1/assignment_1.pdf">
+          <div class="assignment-left">
+            <span class="assignment-num">01</span>
+            <div>
+              <div class="assignment-title">Assignment 1</div>
+              <div class="assignment-meta">Value at Risk</div>
+            </div>
+          </div>
+          <span class="assignment-arrow">→</span>
+        </a>
+
+        <a class="assignment-item" href="projects/value_at_risk/assignment_2/assignment_2.pdf">
+          <div class="assignment-left">
+            <span class="assignment-num">02</span>
+            <div>
+              <div class="assignment-title">Assignment 2</div>
+              <div class="assignment-meta">Value at Risk</div>
+            </div>
+          </div>
+          <span class="assignment-arrow">→</span>
+        </a>
+
+        <a class="assignment-item" href="projects/value_at_risk/assignment_3/assignment_3.pdf">
+          <div class="assignment-left">
+            <span class="assignment-num">03</span>
+            <div>
+              <div class="assignment-title">Assignment 3</div>
+              <div class="assignment-meta">Value at Risk</div>
+            </div>
+          </div>
+          <span class="assignment-arrow">→</span>
+        </a>
+
+        <a class="assignment-item" href="projects/value_at_risk/assignment_4/assignment_4.pdf">
+          <div class="assignment-left">
+            <span class="assignment-num">04</span>
+            <div>
+              <div class="assignment-title">Assignment 4</div>
+              <div class="assignment-meta">Value at Risk</div>
+            </div>
+          </div>
+          <span class="assignment-arrow">→</span>
+        </a>
+
+        <a class="assignment-item" href="projects/value_at_risk/assignment_5/assignment_5.pdf">
+          <div class="assignment-left">
+            <span class="assignment-num">05</span>
+            <div>
+              <div class="assignment-title">Assignment 5</div>
+              <div class="assignment-meta">Value at Risk</div>
+            </div>
+          </div>
+          <span class="assignment-arrow">→</span>
+        </a>
+
+      </div>
+    </section>
+
+    <footer>
+      <p>Jake McLeroth &nbsp;·&nbsp; BCom (Hons) · MCom Financial Risk Management</p>
+    </footer>
+
+  </div>
+</body>
+</html>
