@@ -17,5 +17,5 @@ Gerber, S., Markowitz, H.M., Ernst, P.A., Miao, Y., Javid, B., & Sargen, P. (202
 | File                      | Description                                                                                                                   |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `gerber.ipynb`            | Notebook implementing and exploring the statistic, replicating results from the paper, and constructing optimised portfolios. |
-| `gerber_return_data.xlsx` | Returns data from the original paper                                                                                          |
+
 
