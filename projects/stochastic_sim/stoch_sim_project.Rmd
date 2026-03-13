@@ -8,6 +8,7 @@ output:
     number_sections: true
 biblio-style: "harvard-stellenbosch-university.csl"
 bibliography: references.bib
+render_with_liquid: false
 ---
 
 ```{r setup, include=FALSE}
